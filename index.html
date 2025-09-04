@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart GreenHeat - Inovasi Mesin Pengering Limbah Peternakan Berbasis IoT</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="css/landing.css">
+    <style>
+        /* Penyesuaian untuk Produk Section */
+        #produk .section-title {
+            text-align: center;
+        }
+        .products-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2rem;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+        }
+        .product-card {
+            background: #fff;
+            border-radius: var(--border-radius, 0.5rem);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+            overflow: hidden;
+            width: 200px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 1rem 0.5rem;
+        }
+        .product-card .product-image img {
+            width: 100%;
+            height: auto;
+            display: block;
+            border-radius: var(--border-radius, 0.5rem);
+        }
+        .product-description {
+            text-align: center;
+            font-size: 1.15rem;
+            font-weight: 500;
+            margin-bottom: 2rem;
+        }
+        .contact-button-container {
+            text-align: center;
+            margin-top: 2rem;
+        }
+
+        /* Penyesuaian untuk Contact Section Baru */
+        .contact-section {
+            background: #f6f9f7;
+            padding: 60px 0;
+        }
+        .contact-content {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2rem;
+            align-items: stretch;
+            justify-content: space-between;
+        }
+        .contact-info {
+            flex: 1 1 260px;
+            background: #fff;
+            border-radius: var(--border-radius, 0.5rem);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+            padding: 2rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            min-width: 250px;
+            max-width: 350px;
+            justify-content: center;
+        }
+        .contact-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+        }
+        .contact-item i {
+            font-size: 1.5rem;
+            color: #2ecc71;
+            margin-top: 0.2rem;
+        }
+        .contact-item h4 {
+            margin: 0 0 0.2rem 0;
+            font-size: 1.1rem;
+            color: #222;
+        }
+        .contact-item p {
+            margin: 0;
+            color: #555;
+            font-size: 1rem;
+        }
+        .contact-map {
+            flex: 2 1 400px;
+            min-width: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .contact-map iframe {
+            width: 100%;
+            height: 300px;
+            border: none;
+            border-radius: var(--border-radius, 0.5rem);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        @media (max-width: 900px) {
+            .contact-content {
+                flex-direction: column;
+                gap: 2rem;
+            }
+            .contact-map, .contact-info {
+                max-width: 100%;
+                min-width: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="main-header">
+        <div class="container">
+            <div class="logo-container">
+                <img src="assets/images/logo.png" alt="Smart GreenHeat Logo" class="logo">
+                <h1>Smart GreenHeat</h1>
+            </div>
+            <nav class="main-nav">
+                <ul>
+                    <li><a href="#home">Home</a></li>
+                    <li><a href="#about">Tentang</a></li>
+                    <li><a href="#produk">Produk</a></li>
+                    <li><a href="#contact">Kontak</a></li>
+                </ul>
+            </nav>
+            <div class="auth-buttons">
+                <a href="login.html" class="btn-login">
+                    <i class="fas fa-sign-in-alt"></i> Login
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Section (Home) -->
+    <section id="home" class="hero-section">
+        <div class="container">
+            <div class="hero-content">
+                <h1 class="hero-title">Pupuk Kompos Berkualitas</h1>
+                <p class="hero-subtitle">Smart GreenHeat membantu mengoptimalkan proses pengeringan limbah peternakan menjadi kompos berkualitas tinggi secara cepat dan efisien, tanpa merusak nutrisi penting.</p>
+                <div class="hero-buttons">
+                    <a href="#produk" class="btn-primary">Pelajari Lebih Lanjut</a>
+                    <a href="https://wa.me/6285966943060" class="btn-whatsapp" target="_blank" rel="noopener">
+                        <span class="wa-icon"><i class="fab fa-whatsapp"></i></span> Hubungi Kami
+                    </a>
+                </div>
+            </div>
+            <div class="hero-image">
+                <!-- SLIDER MULAI DI SINI -->
+                <div class="slider-container">
+                    <div class="slider-wrapper">
+                        <div class="slide active">
+                            <img src="assets/images/sliders/slider1.jpg" alt="Smart GreenHeat System">
+                        </div>
+                        <div class="slide">
+                            <img src="assets/images/sliders/slider2.jpg" alt="Kompos Berkualitas Tinggi">
+                        </div>
+                        <div class="slide">
+                            <img src="assets/images/sliders/slider3.jpg" alt="Proses Pengeringan Cepat">
+                        </div>
+                    </div>
+                    <button class="slider-prev">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <button class="slider-next">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                    <div class="slider-dots">
+                        <span class="dot active" data-slide="0"></span>
+                        <span class="dot" data-slide="1"></span>
+                        <span class="dot" data-slide="2"></span>
+                    </div>
+                </div>
+                <!-- SLIDER SELESAI -->
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section (Tentang) DENGAN SLIDER -->
+    <section id="about" class="about-section">
+        <div class="container">
+            <h2 class="section-title">Tentang Kami</h2>
+            <div class="about-slider-container">
+                <div class="about-slider-wrapper">
+                    <!-- Slide 1: Tentang Pupuk -->
+                    <div class="about-slide active">
+                        <div class="about-content">
+                            <div class="about-text">
+                                <h3>Pupuk Kompos Berkualitas</h3>
+                                <p>Smart GreenHeat membantu mengoptimalkan proses pengeringan limbah peternakan menjadi kompos berkualitas tinggi secara cepat dan efisien, tanpa merusak nutrisi penting.</p>
+                                <div class="stats">
+                                    <div class="stat-item">
+                                        <h4>95%</h4>
+                                        <p>Pertumbuhan Tanaman</p>
+                                    </div>
+                                    <div class="stat-item">
+                                        <h4>7 Hari</h4>
+                                        <p>Proses Pengeringan</p>
+                                    </div>
+                                    <div class="stat-item">
+                                        <h4>0% Kimia</h4>
+                                        <p>100% Organik</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="about-image">
+                                <img src="assets/images/pupuk.jpg" alt="Pupuk Kompos Berkualitas">
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Slide 2: Tentang Smart GreenHeat -->
+                    <div class="about-slide">
+                        <div class="about-content">
+                            <div class="about-text">
+                                <h3>Smart GreenHeat</h3>
+                                <p>Smart GreenHeat adalah solusi inovatif untuk pertanian modern yang menggabungkan teknologi IoT dengan sistem kontrol rumah kaca cerdas. Kami membantu petani dan pengusaha agrikultur meningkatkan produktivitas tanaman dengan kontrol lingkungan yang presisi.</p>
+                                <p>Dengan sistem real-time monitoring dan kontrol otomatis, Smart GreenHeat memastikan tanaman Anda tumbuh dalam kondisi optimal setiap saat.</p>
+                                <div class="stats">
+                                    <div class="stat-item">
+                                        <h4>1000+</h4>
+                                        <p>Pengguna Aktif</p>
+                                    </div>
+                                    <div class="stat-item">
+                                        <h4>95%</h4>
+                                        <p>Efisiensi Energi</p>
+                                    </div>
+                                    <div class="stat-item">
+                                        <h4>24/7</h4>
+                                        <p>Monitoring</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="about-image">
+                                <img src="assets/images/smart-greenheat.jpg" alt="Smart GreenHeat">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <button class="slider-prev-about">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+                <button class="slider-next-about">
+                    <i class="fas fa-chevron-right"></i>
+                </button>
+                <div class="slider-dots-about">
+                    <span class="dot active" data-slide="0"></span>
+                    <span class="dot" data-slide="1"></span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Produk Section -->
+    <section id="produk" class="features-section">
+        <div class="container">
+            <h2 class="section-title">Produk Unggulan Kami</h2>
+            
+            <!-- Products Grid -->
+            <div class="products-grid">
+                <!-- Product 1 -->
+                <div class="product-card">
+                    <div class="product-image">
+                        <img src="assets/images/product1.jpg" alt="Pupuk Kompos Berkualitas">
+                    </div>
+                </div>
+                <!-- Product 2 -->
+                <div class="product-card">
+                    <div class="product-image">
+                        <img src="assets/images/product2.jpg" alt="Pupuk Kompos Berkualitas">
+                    </div>
+                </div>
+                <!-- Product 3 -->
+                <div class="product-card">
+                    <div class="product-image">
+                        <img src="assets/images/product3.jpg" alt="Pupuk Kompos Berkualitas">
+                    </div>
+                </div>
+                <!-- Product 4 -->
+                <div class="product-card">
+                    <div class="product-image">
+                        <img src="assets/images/product4.jpg" alt="Pupuk Kompos Berkualitas">
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Product Description -->
+            <div class="product-description">
+                <p>Pupuk Berkualitas</p>
+            </div>
+            
+            <!-- Hubungi Kami Button -->
+            <div class="contact-button-container">
+                <a href="https://wa.me/6285966943060" class="btn-whatsapp" target="_blank" rel="noopener">
+                    <span class="wa-icon"><i class="fab fa-whatsapp"></i></span> Hubungi Kami
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Contact Section (Kontak) -->
+    <section id="contact" class="contact-section">
+        <div class="container">
+            <h2 class="section-title">Hubungi Kami</h2>
+            <div class="contact-content">
+                <!-- Kiri: Info Kontak -->
+                <div class="contact-info">
+                    <div class="contact-item">
+                        <i class="fas fa-map-marker-alt"></i>
+                        <div>
+                            <h4>Alamat</h4>
+                            <p>Jl. Teknologi No. 123, Kota Cerdas</p>
+                        </div>
+                    </div>
+                    <div class="contact-item">
+                        <i class="fas fa-phone"></i>
+                        <div>
+                            <h4>Telepon</h4>
+                            <p>+62 123 4567 890</p>
+                        </div>
+                    </div>
+                </div>
+                <!-- Kanan: Google Maps -->
+                <div class="contact-map">
+                    <iframe 
+                        src="https://www.google.com/maps?q=-6.200000,106.816666&hl=id&z=15&output=embed"
+                        width="100%" 
+                        height="300" 
+                        style="border: none; border-radius: var(--border-radius, 0.5rem); box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);"
+                        allowfullscreen=""
+                        loading="lazy"
+                        referrerpolicy="no-referrer-when-downgrade">
+                    </iframe>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="main-footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-logo">
+                    <img src="assets/images/logo.png" alt="Smart GreenHeat Logo" class="logo">
+                    <h3>Smart GreenHeat</h3>
+                </div>
+                <div class="footer-links">
+                    <h4>Tautan</h4>
+                    <ul>
+                        <li><a href="#home">Home</a></li>
+                        <li><a href="#about">Tentang</a></li>
+                        <li><a href="#produk">Produk</a></li>
+                        <li><a href="#contact">Kontak</a></li>
+                    </ul>
+                </div>
+                <div class="footer-social">
+                    <h4>Sosial Media</h4>
+                    <div class="social-icons">
+                        <a href="#"><i class="fab fa-facebook-f"></i></a>
+                        <a href="#"><i class="fab fa-twitter"></i></a>
+                        <a href="#"><i class="fab fa-instagram"></i></a>
+                        <a href="#"><i class="fab fa-linkedin-in"></i></a>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; PKM-PI 2025 |  Smart GreenHeat.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/landing.js"></script>
+</body>
+</html>

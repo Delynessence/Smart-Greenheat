@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+  <title>Login - Smart GreenHeat</title>
+  <link rel="stylesheet" href="css/login.css" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <!-- (Opsional) Font Inter biar sesuai CSS -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap"
+        rel="stylesheet" />
+  <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-box">
+      <div class="login-header">
+        <div class="logo-container">
+          <img src="assets/images/logo.png" alt="Smart GreenHeat Logo" class="logo" />
+          <h2>Smart GreenHeat</h2>
+        </div>
+        <p>Masuk ke Dashboard Kontrol</p>
+      </div>
+      
+      <form id="login-form" class="login-form" autocomplete="on" novalidate>
+        <div class="form-group">
+          <label for="email"><i class="fas fa-envelope"></i> Email</label>
+          <input type="email" id="email" name="email"
+                 placeholder="Masukkan email Anda" required autofocus />
+        </div>
+
+        <div class="form-group">
+          <label for="password"><i class="fas fa-lock"></i> Password</label>
+          <input type="password" id="password" name="password"
+                 placeholder="Masukkan password" required />
+        </div>
+
+        <div class="form-options">
+          <div class="remember-me">
+            <input type="checkbox" id="remember" />
+            <label for="remember">Ingat saya</label>
+          </div>
+          <a href="#" class="forgot-password" id="forgot-link">Lupa Password?</a>
+        </div>
+
+        <button type="submit" class="login-button" id="login-btn">
+          <i class="fas fa-sign-in-alt"></i> Masuk
+        </button>
+      </form>
+      
+      <div class="login-footer">
+        <p>Belum punya akun? <a href="#" id="contact-admin">Hubungi Administrator</a></p>
+        <p><a href="index.html"><i class="fas fa-arrow-left"></i> Kembali ke Beranda</a></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loading-overlay" class="loading-overlay" aria-live="polite">
+    <div class="spinner" aria-hidden="true"></div>
+    <p>Memverifikasi...</p>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast" role="status" aria-live="polite">
+    <div class="toast-content">
+      <span id="toast-message"></span>
+      <button class="toast-close" type="button" aria-label="Tutup">&times;</button>
+    </div>
+  </div>
+
+  <!-- Firebase compat (jangan pakai ES module di halaman ini) -->
+  <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-auth-compat.js"></script>
+
+  <!-- Konfigurasi Firebase (membuat window.auth) -->
+  <script src="firebase-config.js"></script>
+
+  <!-- Logic Login -->
+  <script src="js/login.js"></script>
+</body>
+</html>

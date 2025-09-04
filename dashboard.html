@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1"
+  />
+  <title>Dashboard - Smart GreenHeat</title>
+  <link rel="stylesheet" href="css/dashboard.css" />
+  <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+  />
+</head>
+<body>
+  <!-- Loading Spinner -->
+  <div id="loading-overlay" class="loading-overlay" aria-live="polite">
+    <div class="spinner" aria-hidden="true"></div>
+    <p>Memuat dashboard...</p>
+  </div>
+
+  <div class="container">
+    <!-- Header -->
+    <header class="main-header">
+      <div class="header-left">
+        <div class="logo-container">
+          <img
+            src="assets/images/logo.png"
+            alt="Smart GreenHeat Logo"
+            class="logo"
+          />
+          <h1>Smart GreenHeat Dashboard</h1>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="user-info">
+          <span id="user-status">👤 Guest</span>
+          <!-- Disembunyikan sampai user login -->
+          <button
+            id="auth-btn"
+            class="auth-button"
+            type="button"
+            onclick="toggleAuth()"
+            style="display:none"
+            aria-label="Logout"
+            title="Logout"
+          >
+            <i class="fas fa-sign-out-alt"></i> Logout
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Stats Cards -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="card-header">
+          <i class="fas fa-thermometer-half icon-temperature" aria-hidden="true"></i>
+          <h3>Suhu</h3>
+        </div>
+        <div class="card-content">
+          <p class="value" id="temp-value">--</p>
+          <p class="unit">°C</p>
+        </div>
+        <div class="progress-container">
+          <div class="progress-bar">
+            <div class="progress-fill" id="temp-progress"></div>
+          </div>
+          <div class="progress-labels">
+            <span>0°C</span>
+            <span>100°C</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="card-header">
+          <i class="fas fa-tint icon-humidity" aria-hidden="true"></i>
+          <h3>Kelembapan</h3>
+        </div>
+        <div class="card-content">
+          <p class="value" id="humidity-value">--</p>
+          <p class="unit">%</p>
+        </div>
+        <div class="progress-container">
+          <div class="progress-bar">
+            <div class="progress-fill" id="humidity-progress"></div>
+          </div>
+          <div class="progress-labels">
+            <span>0%</span>
+            <span>100%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="stat-card">
+        <div class="card-header">
+          <i class="fas fa-power-off icon-status" aria-hidden="true"></i>
+          <h3>Status</h3>
+        </div>
+        <div class="card-content">
+          <p class="value" id="status-value">--</p>
+          <div class="status-source">
+            <span class="source-label">Kontrol:</span>
+            <span id="source-value" class="source-text">--</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Control Panel -->
+    <div class="section">
+      <div class="section-header">
+        <h2><i class="fas fa-bolt" aria-hidden="true"></i> Kontrol Sistem</h2>
+        <button class="export-btn" type="button" onclick="exportData()">
+          <i class="fas fa-download" aria-hidden="true"></i> Export
+        </button>
+      </div>
+      <div class="control-buttons">
+        <button class="control-btn btn-success" type="button" onclick="sendCommand('start')">
+          <i class="fas fa-play" aria-hidden="true"></i> START
+        </button>
+        <button class="control-btn btn-danger" type="button" onclick="sendCommand('stop')">
+          <i class="fas fa-stop" aria-hidden="true"></i> STOP
+        </button>
+        <button class="control-btn btn-info" type="button" onclick="refreshData()">
+          <i class="fas fa-sync-alt" aria-hidden="true"></i> REFRESH
+        </button>
+      </div>
+    </div>
+
+    <!-- Modal Logout -->
+    <div id="logout-modal" class="modal" aria-hidden="true">
+      <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="logout-title">
+        <div class="modal-header">
+          <h2 id="logout-title">
+            <i class="fas fa-sign-out-alt" aria-hidden="true"></i> Konfirmasi Logout
+          </h2>
+          <span class="close" role="button" tabindex="0" onclick="closeModal()" aria-label="Tutup">&times;</span>
+        </div>
+        <div class="modal-body">
+          <p>Apakah Anda yakin ingin keluar dari dashboard?</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" type="button" onclick="closeModal()">Batal</button>
+          <button class="btn-danger" type="button" onclick="logout()">Logout</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile Bottom Navigation -->
+  <nav class="mobile-nav" aria-label="Bottom navigation">
+    <a href="#" class="nav-item active">
+      <i class="fas fa-home" aria-hidden="true"></i>
+      <span>Dashboard</span>
+    </a>
+    <a href="#" class="nav-item">
+      <i class="fas fa-chart-line" aria-hidden="true"></i>
+      <span>Grafik</span>
+    </a>
+    <a href="#" class="nav-item">
+      <i class="fas fa-gamepad" aria-hidden="true"></i>
+      <span>Kontrol</span>
+    </a>
+    <a href="#" class="nav-item">
+      <i class="fas fa-cog" aria-hidden="true"></i>
+      <span>Pengaturan</span>
+    </a>
+  </nav>
+
+  <!-- Firebase compat SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-auth-compat.js"></script>
+  <!-- Jika tidak pakai Analytics, tidak perlu analytics-compat -->
+
+  <!-- Inisialisasi Firebase (membuat window.database & window.auth) -->
+  <script src="firebase-config.js"></script>
+
+  <!-- Logic dashboard (mendaftarkan listener, tombol, dsb) -->
+  <script src="js/dashboard.js"></script>
+
+  <!-- (Opsional) kecilkan FOIT / cegah FOUC di CSS, bukan disini -->
+</body>
+</html>
