@@ -13,7 +13,7 @@ const auth = window.auth;
 // ====== Init ======
 document.addEventListener('DOMContentLoaded', function () {
 
-  // (opsional) Tampilkan status koneksi RTDB client (bukan ESP)
+  // (opsional) status koneksi client RTDB
   if (window.connectedRef) {
     window.connectedRef.on('value', snap => {
       const online = snap.val() === true;
@@ -32,11 +32,9 @@ document.addEventListener('DOMContentLoaded', function () {
       const el = document.getElementById('user-status');
       if (el) el.textContent = '👤 ' + user.email;
 
-      // Default: anggap offline hingga heartbeat terverifikasi
-      setDeviceOnline(false);
-
+      setDeviceOnline(false); // default sebelum heartbeat terverifikasi
       setupFirebase();
-      // tampilkan tombol logout
+
       const btn = document.getElementById('auth-btn');
       if (btn) btn.style.display = 'inline-flex';
     } else {
@@ -82,26 +80,22 @@ function setupFirebase() {
     }
   });
 
-  // Status stream — gunakan HEARTBEAT dari ESP
+  // Status stream — pakai heartbeat dari ESP
   statusRef.on('value', function (snapshot) {
     const data = snapshot.val() || {};
 
-    // status RUN/STOP
     const running = !!data.running;
     document.getElementById('status-value').textContent = running ? 'RUNNING' : 'STOPPED';
     document.getElementById('source-value').textContent = data.lastCommandSource
       ? String(data.lastCommandSource).toUpperCase()
       : '--';
 
-    // === HEARTBEAT ===
-    const espOnline = !!data.espOnline; // set oleh ESP + onDisconnect
-    const lastSeen  = (typeof data.lastSeen === 'number') ? data.lastSeen : 0; // server timestamp (ms)
-    const FRESH_MS  = 15000; // 15 dtk dianggap masih hidup
+    const espOnline = !!data.espOnline;
+    const lastSeen  = (typeof data.lastSeen === 'number') ? data.lastSeen : 0; // server ts (ms)
+    const FRESH_MS  = 15000;
 
     const fresh = (Date.now() - lastSeen) < FRESH_MS;
-    const deviceAlive = espOnline && fresh;
-
-    setDeviceOnline(deviceAlive);
+    setDeviceOnline(espOnline && fresh);
   });
 }
 
@@ -119,7 +113,6 @@ function setButtonsDisabled(disabled) {
   if (exportBtn) exportBtn.disabled = disabled;
 }
 
-// Toggle state device online/offline → disable UI + modal
 function setDeviceOnline(isOnline) {
   const section = document.querySelector('.section');
   const exportBtn = document.querySelector('.export-btn');
@@ -179,11 +172,27 @@ function sendCommand(action) {
     });
 }
 
-// ====== Misc UI ======
+// >>> REFRESH = minta SOFT RESET (reboot) ke ESP
 function refreshData() {
-  showToast('Refresh', 'Memperbarui data...', 'info', 1500);
+  if (!currentUser) {
+    showToast('Akses Ditolak', 'Silakan login dulu', 'warning');
+    return;
+  }
+  setButtonsDisabled(true);
+  db.ref('controls/action').set('reboot')
+    .then(() => {
+      showToast('Reboot', 'Meminta perangkat untuk restart…', 'info', 2000);
+      setTimeout(() => {
+        db.ref('controls/action').set('').finally(() => setButtonsDisabled(false));
+      }, 1000);
+    })
+    .catch(err => {
+      setButtonsDisabled(false);
+      showToast('Error', 'Gagal kirim reboot: ' + err.message, 'error');
+    });
 }
 
+// ====== Export ======
 function exportData() {
   if (!currentUser) {
     showToast('Akses Ditolak', 'Silakan login dulu untuk mengekspor data', 'warning');
@@ -273,9 +282,9 @@ window.addEventListener('beforeunload', function () {
 });
 
 // Expose untuk HTML
-window.sendCommand     = sendCommand;
-window.refreshData     = refreshData;
-window.toggleAuth      = toggleAuth;
-window.closeModal      = closeModal;
-window.logout          = logout;
+window.sendCommand      = sendCommand;
+window.refreshData      = refreshData;
+window.toggleAuth       = toggleAuth;
+window.closeModal       = closeModal;
+window.logout           = logout;
 window.showOfflineModal = showOfflineModal;
