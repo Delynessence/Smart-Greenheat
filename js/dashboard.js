@@ -1,26 +1,41 @@
+/* DASHBOARD WATCHER — robust online/offline detection
+   - Server clock via .info/serverTimeOffset
+   - Tight thresholds + immediate fallback
+   - Default locked UI until proven online
+*/
+
 // ===== Global =====
 let currentUser = null;
 let sensorData = { timestamps: [], temperatures: [], humidities: [] };
-let sensorsRef = null, statusRef = null;
+let sensorsRef = null, statusRef = null, lastSeenRef = null, offsetRef = null;
 
 const db   = window.database;
 const auth = window.auth;
 
-// ===== Heartbeat & health =====
-let LAST_SEEN_MS = 0;                 // server timestamp dari /status/lastSeen (ms)
-let lastAnyEventAt = 0;               // kapan terakhir TERIMA event dari RTDB (ms)
-const FRESH_MS = 15000;               // dianggap online bila lastSeen <= 15 dtk
-const QUIET_MS = 20000;               // bila tak ada event apa pun > 20 dtk → offline
-let hbTimer = null;                   // interval checker
-let deviceOnline = null;              // cache state (hindari spam UI)
+// ===== Health / heartbeat =====
+let LAST_SEEN_MS = 0;          // dari /status/lastSeen (ms)
+let SERVER_OFFSET_MS = 0;      // .info/serverTimeOffset (ms) → serverNow = Date.now() + offset
+let lastAnyEventAt = 0;        // kapan terakhir TERIMA event RTDB (ms)
+let hbTimer = null;
+let deviceOnline = null;       // cache state
+
+// Thresholds (lebih ketat)
+const BEAT_MS   = 5000;        // ESP32 kirim setiap 5 dtk
+const FRESH_MS  = 7000;        // dianggap online bila lastSeen <= 7 dtk
+const QUIET_MS  = 10000;       // tak ada event apa pun >10 dtk → offline
+const STARTUP_GRACE_MS = 8000; // kalau 8 dtk pertama tak ada beat → offline
+
+// ===== Utilities =====
+function serverNow() { return Date.now() + (SERVER_OFFSET_MS || 0); }
+function log(...a){ console.log('[WD]', ...a); }
 
 // ===== Init =====
 document.addEventListener('DOMContentLoaded', () => {
-  // Default: kunci UI & tampilkan modal sampai terbukti online
+  // Safe default: kunci UI & tampilkan modal
   setDeviceOnline(false);
   showOfflineModal(true);
 
-  // Status koneksi browser (client) → kalau browser offline, paksa UI offline
+  // Status koneksi browser → kalau offline, paksa UI offline
   if (window.connectedRef) {
     window.connectedRef.on('value', snap => {
       const clientOnline = snap.val() === true;
@@ -33,31 +48,32 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   window.addEventListener('offline', () => updateOnlineState(false));
-  window.addEventListener('online',  () => { /* tunggu heartbeat agar aman */ });
 
   // Auth
   auth.onAuthStateChanged(user => {
-    if (user) {
-      currentUser = user;
-      const el = document.getElementById('user-status');
-      if (el) el.textContent = '👤 ' + user.email;
-
-      setupFirebase();
-      const btn = document.getElementById('auth-btn');
-      if (btn) btn.style.display = 'inline-flex';
-    } else {
-      window.location.href = 'login.html';
-    }
+    if (!user) { window.location.href = 'login.html'; return; }
+    currentUser = user;
+    const el = document.getElementById('user-status');
+    if (el) el.textContent = '👤 ' + user.email;
+    setupFirebase();
   });
 
   // Loading overlay auto-hide
   setTimeout(() => {
     const ov = document.getElementById('loading-overlay');
     if (ov) ov.classList.add('hidden');
-  }, 1200);
+  }, 900);
 
-  // Start watchdog segera (tanpa nunggu event pertama)
+  // Mulai watcher walaupun belum ada event (buat fallback awal)
   startHeartbeatWatch();
+
+  // Grace-period awal: jika 8 dtk tidak ada beat, paksa offline
+  setTimeout(() => {
+    if (LAST_SEEN_MS === 0) {
+      log('No heartbeat during startup grace → force offline');
+      updateOnlineState(false);
+    }
+  }, STARTUP_GRACE_MS);
 
   // Hemat resource saat tab di background
   document.addEventListener('visibilitychange', () => {
@@ -67,8 +83,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ===== Firebase listeners =====
 function setupFirebase() {
-  if (!sensorsRef) sensorsRef = db.ref('sensors');
-  if (!statusRef)  statusRef  = db.ref('status');
+  if (!sensorsRef)   sensorsRef   = db.ref('sensors');
+  if (!statusRef)    statusRef    = db.ref('status');
+  if (!lastSeenRef)  lastSeenRef  = db.ref('status/lastSeen');        // lebih ringan
+  if (!offsetRef)    offsetRef    = db.ref('.info/serverTimeOffset'); // ms int
+
+  // Server time offset
+  offsetRef.on('value', snap => {
+    SERVER_OFFSET_MS = Number(snap.val() || 0);
+    log('server offset(ms)=', SERVER_OFFSET_MS);
+  });
 
   // Sensor stream
   sensorsRef.on('value', snapshot => {
@@ -78,25 +102,21 @@ function setupFirebase() {
     const t = (typeof data.temperature === 'number') ? data.temperature : null;
     const h = (typeof data.moisture    === 'number') ? data.moisture    : null;
 
-    // Render
     document.getElementById('temp-value').textContent     = (t !== null) ? t.toFixed(1) : '--';
     document.getElementById('humidity-value').textContent = (h !== null) ? h : '--';
     if (t !== null) updateProgressBar('temp-progress', t, 100);
     if (h !== null) updateProgressBar('humidity-progress', h, 100);
 
-    // Simpan untuk export
     const now = new Date().toLocaleString();
     sensorData.timestamps.push(now);
     sensorData.temperatures.push(t ?? '');
     sensorData.humidities.push(h ?? '');
     if (sensorData.timestamps.length > 100) {
-      sensorData.timestamps.shift();
-      sensorData.temperatures.shift();
-      sensorData.humidities.shift();
+      sensorData.timestamps.shift(); sensorData.temperatures.shift(); sensorData.humidities.shift();
     }
   });
 
-  // Status + Heartbeat stream
+  // Status (ringan: value)
   statusRef.on('value', snapshot => {
     lastAnyEventAt = Date.now();
 
@@ -105,34 +125,37 @@ function setupFirebase() {
       data.running ? 'RUNNING' : 'STOPPED';
     document.getElementById('source-value').textContent =
       data.lastCommandSource ? String(data.lastCommandSource).toUpperCase() : '--';
+  });
 
-    // lastSeen (server timestamp dalam ms). Kalau tidak ada → 0 (offline)
-    LAST_SEEN_MS = (typeof data.lastSeen === 'number') ? data.lastSeen : 0;
+  // Heartbeat (langsung pada path lastSeen)
+  lastSeenRef.on('value', snapshot => {
+    const v = snapshot.val();
+    LAST_SEEN_MS = (typeof v === 'number') ? v : Number(v || 0);
+    log('lastSeen(ms)=', LAST_SEEN_MS, ' age(ms)=', serverNow() - LAST_SEEN_MS);
 
-    // Evaluasi segera saat ada data
-    const freshNow = (Date.now() - LAST_SEEN_MS) <= FRESH_MS;
-    updateOnlineState(freshNow);
+    // Evaluasi langsung saat heartbeat diterima
+    const fresh = (serverNow() - LAST_SEEN_MS) <= FRESH_MS;
+    updateOnlineState(fresh);
   });
 }
 
-// ===== Heartbeat / health watchdog =====
+// ===== Watchdog =====
 function startHeartbeatWatch() {
   if (hbTimer) return;
   hbTimer = setInterval(() => {
-    const now = Date.now();
+    const sNow = serverNow();
 
-    // Sinyal 1: heartbeat lastSeen
-    const hbFresh = LAST_SEEN_MS > 0 && (now - LAST_SEEN_MS) <= FRESH_MS;
+    const beatFresh   = (LAST_SEEN_MS > 0) && ((sNow - LAST_SEEN_MS) <= FRESH_MS);
+    const streamFresh = (lastAnyEventAt > 0) && ((Date.now() - lastAnyEventAt) <= QUIET_MS);
+    const clientOk    = navigator.onLine;
 
-    // Sinyal 2: tidak ada event RTDB cukup lama
-    const streamFresh = lastAnyEventAt > 0 && (now - lastAnyEventAt) <= QUIET_MS;
+    const shouldBeOnline = beatFresh && streamFresh && clientOk;
 
-    // Sinyal 3: koneksi browser
-    const clientFresh = navigator.onLine;
+    // Debug ringan di console
+    // log('tick', {beatFresh, streamFresh, clientOk, age: sNow - LAST_SEEN_MS});
 
-    const shouldBeOnline = hbFresh && streamFresh && clientFresh;
     updateOnlineState(shouldBeOnline);
-  }, 2000); // cek tiap 2 detik
+  }, 2000);
 }
 function stopHeartbeatWatch() { if (hbTimer) { clearInterval(hbTimer); hbTimer = null; } }
 
@@ -144,10 +167,10 @@ function updateOnlineState(isOnline) {
 
   if (isOnline) {
     showOfflineModal(false);
-    showToast('Perangkat Online', 'Koneksi mesin tersambung kembali', 'success', 1800);
+    showToast('Perangkat Online', 'Koneksi mesin tersambung kembali', 'success', 1500);
   } else {
     showOfflineModal(true);
-    showToast('Perangkat Offline', 'Hubungkan koneksi internet pada Mesin', 'warning', 3000);
+    showToast('Perangkat Offline', 'Hubungkan koneksi internet pada Mesin', 'warning', 2500);
   }
 }
 function setDeviceOnline(isOnline) {
@@ -185,7 +208,7 @@ function sendCommand(action) {
   db.ref('controls/action').set(action)
     .then(() => {
       showToast('Perintah Dikirim', action === 'start' ? 'Sistem akan dihidupkan' : 'Sistem akan dihentikan', 'info');
-      setTimeout(() => db.ref('controls/action').set('').finally(() => setButtonsDisabled(false)), 1000);
+      setTimeout(() => db.ref('controls/action').set('').finally(() => setButtonsDisabled(false)), 900);
     })
     .catch(err => {
       setButtonsDisabled(false);
@@ -193,7 +216,7 @@ function sendCommand(action) {
     });
 }
 
-// REFRESH = minta soft reset (reboot) ke ESP32
+// REFRESH = soft reset (reboot)
 function refreshData() {
   if (!currentUser)  return showToast('Akses Ditolak', 'Silakan login dulu', 'warning');
   if (deviceOnline === false) return showToast('Perangkat Offline','Tidak bisa reboot saat offline','warning');
@@ -201,8 +224,8 @@ function refreshData() {
   setButtonsDisabled(true);
   db.ref('controls/action').set('reboot')
     .then(() => {
-      showToast('Reboot', 'Meminta perangkat untuk restart…', 'info', 1800);
-      setTimeout(() => db.ref('controls/action').set('').finally(() => setButtonsDisabled(false)), 1000);
+      showToast('Reboot', 'Meminta perangkat untuk restart…', 'info', 1500);
+      setTimeout(() => db.ref('controls/action').set('').finally(() => setButtonsDisabled(false)), 900);
     })
     .catch(err => {
       setButtonsDisabled(false);
@@ -262,6 +285,8 @@ function logout(){
 window.addEventListener('beforeunload', () => {
   if (sensorsRef) sensorsRef.off();
   if (statusRef)  statusRef.off();
+  if (lastSeenRef) lastSeenRef.off();
+  if (offsetRef)   offsetRef.off();
   stopHeartbeatWatch();
 });
 
