@@ -28,7 +28,6 @@
       <div class="header-right">
         <div class="user-info">
           <span id="user-status">👤 Guest</span>
-          <!-- HAPUS display:none supaya kelihatan -->
           <button id="auth-btn" class="auth-button" type="button"
                   onclick="toggleAuth()" aria-label="Logout" title="Logout">
             <i class="fas fa-right-from-bracket" aria-hidden="true"></i>
@@ -95,8 +94,25 @@
       </div>
     </div>
 
-    <!-- Control Panel -->
+    <!-- Grafik Sensor -->
     <div class="section">
+      <div class="section-header">
+        <h2><i class="fas fa-chart-line" aria-hidden="true"></i> Grafik Sensor</h2>
+        <div class="range-tabs" role="tablist" aria-label="Rentang waktu grafik">
+          <button class="range-btn active" data-min="15">15m</button>
+          <button class="range-btn" data-min="60">1h</button>
+          <button class="range-btn" data-min="360">6h</button>
+          <button class="range-btn" data-min="1440">24h</button>
+          <button class="range-btn" data-min="all">All</button>
+        </div>
+      </div>
+      <div class="chart-wrapper">
+        <canvas id="sensorChart" aria-label="Grafik suhu dan kelembapan" role="img"></canvas>
+      </div>
+    </div>
+
+    <!-- Control Panel -->
+    <div class="section" id="control-section">
       <div class="section-header">
         <h2><i class="fas fa-bolt" aria-hidden="true"></i> Kontrol Sistem</h2>
         <button class="export-btn" type="button" onclick="exportData()">
@@ -188,6 +204,9 @@
   <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-auth-compat.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
   <!-- Inisialisasi Firebase -->
   <script src="firebase-config.js"></script>
