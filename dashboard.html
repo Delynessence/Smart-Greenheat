@@ -121,7 +121,7 @@
       <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="logout-title">
         <div class="modal-header">
           <h2 id="logout-title">
-            <i class="fas fa-sign-out-alt" aria-hidden="true"></i> Konfirmasi Logout
+            <i class="fas fa-right-from-bracket" aria-hidden="true"></i> Konfirmasi Logout
           </h2>
           <span class="close" role="button" tabindex="0" onclick="closeModal()" aria-label="Tutup">&times;</span>
         </div>
@@ -129,8 +129,13 @@
           <p>Apakah Anda yakin ingin keluar dari dashboard?</p>
         </div>
         <div class="modal-footer">
-          <button class="btn-secondary" type="button" onclick="closeModal()">Batal</button>
-          <button class="btn-danger" type="button" onclick="logout()">Logout</button>
+          <!-- tombol baru yang lebih menarik -->
+          <button class="btn btn-secondary" type="button" onclick="closeModal()">
+            <i class="fas fa-times btn-icon" aria-hidden="true"></i> Batal
+          </button>
+          <button class="btn btn-danger" type="button" onclick="logout()">
+            <i class="fas fa-power-off btn-icon" aria-hidden="true"></i> Logout
+          </button>
         </div>
       </div>
     </div>
@@ -151,7 +156,9 @@
           </ul>
         </div>
         <div class="modal-footer">
-          <button class="btn-secondary" type="button" onclick="showOfflineModal(false)">Tutup</button>
+          <button class="btn btn-secondary" type="button" onclick="showOfflineModal(false)">
+            <i class="fas fa-check btn-icon" aria-hidden="true"></i> Oke
+          </button>
         </div>
       </div>
     </div>
@@ -182,7 +189,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-auth-compat.js"></script>
 
-  <!-- Inisialisasi Firebase (punyamu) -->
+  <!-- Inisialisasi Firebase -->
   <script src="firebase-config.js"></script>
 
   <!-- Logic dashboard -->
