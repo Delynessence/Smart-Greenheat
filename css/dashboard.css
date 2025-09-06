@@ -57,7 +57,7 @@ body{
   display:inline-flex; align-items:center; gap:.5rem;
   padding:.5rem 1rem;
   border:0; border-radius:9999px;
-  color:#fff; cursor:pointer; font-weight:600;
+  color:#fff; cursor:pointer; font-weight:700;
   background-image:linear-gradient(135deg,var(--stop-1),var(--stop-2));
   box-shadow:0 6px 14px rgba(44,23,14,.22), inset 0 0 0 1px rgba(255,255,255,.08);
   transition:transform .15s ease, box-shadow .15s ease, filter .15s ease;
@@ -90,14 +90,18 @@ body{
 .progress-fill{height:100%;background:linear-gradient(90deg,var(--primary),var(--primary-dark));border-radius:5px;width:0%;transition:width .5s ease;z-index:2}
 .progress-labels{display:flex;justify-content:space-between;font-size:.8rem;color:var(--text-secondary)}
 
-/* ===== Section & Disabled ===== */
+/* ===== Section ===== */
 .section{background:#fff;border-radius:var(--radius-lg);padding:var(--spacer-lg);margin-bottom:var(--spacer-xl);box-shadow:var(--shadow);border:1px solid var(--gray-200);position:relative;overflow:hidden}
 .section::before{content:'';position:absolute;inset:0 0 auto 0;height:5px;background:linear-gradient(90deg,var(--primary),var(--primary-dark))}
 .section.disabled{ filter: grayscale(.15) opacity(.6); pointer-events: none; transition: filter .2s ease;}
 .section-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--spacer-lg);flex-wrap:wrap;gap:var(--spacer)}
 .section-header h2{margin:0;font-size:1.5rem;display:flex;align-items:center;gap:.75rem}
-.export-btn{background:var(--primary);color:#fff;border:0;padding:.75rem 1.5rem;border-radius:var(--radius-lg);cursor:pointer;font-size:.9rem;font-weight:500;transition:.2s;display:flex;align-items:center;gap:.5rem}
-.export-btn:hover{background:var(--primary-dark);transform:translateY(-2px);box-shadow:0 4px 8px rgba(0,0,0,.1)}
+.control-right{display:flex;gap:.5rem;flex-wrap:wrap}
+.export-btn,.wifi-btn{
+  background:var(--primary);color:#fff;border:0;padding:.75rem 1.2rem;border-radius:var(--radius-lg);
+  cursor:pointer;font-size:.9rem;font-weight:700;transition:.2s;display:inline-flex;align-items:center;gap:.5rem
+}
+.export-btn:hover,.wifi-btn:hover{background:var(--primary-dark);transform:translateY(-2px);box-shadow:0 4px 8px rgba(0,0,0,.1)}
 
 /* ===== Control Buttons ===== */
 .control-buttons{display:flex;gap:var(--spacer);flex-wrap:wrap}
@@ -156,11 +160,10 @@ body{
 /* ===== Grafik ===== */
 .chart-wrapper{position:relative;width:100%;height:320px}
 @media (max-width:576px){ .chart-wrapper{height:260px} }
-
 .range-tabs{display:flex;gap:.5rem;flex-wrap:wrap}
 .range-btn{
   padding:.45rem .8rem;border-radius:9999px;border:1px solid var(--gray-300);
-  background:#fff;color:var(--text-primary);cursor:pointer;font-weight:600;transition:.15s ease;
+  background:#fff;color:var(--text-primary);cursor:pointer;font-weight:700;transition:.15s ease;
 }
 .range-btn:hover{background:var(--gray-100)}
 .range-btn.active{
@@ -187,7 +190,7 @@ body{
   .logo-container{width:100%;justify-content:center}
   .header-right{width:100%;justify-content:center}
   .section-header{flex-direction:column;align-items:flex-start}
-  .export-btn{align-self:flex-end}
+  .control-right{align-self:flex-end}
   .mobile-nav{display:flex}
   body{padding-bottom:70px}
 }
