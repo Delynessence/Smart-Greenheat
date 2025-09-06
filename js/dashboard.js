@@ -1,299 +1,211 @@
-/* DASHBOARD WATCHER — robust online/offline detection
-   - Server clock via .info/serverTimeOffset
-   - Tight thresholds + immediate fallback
-   - Default locked UI until proven online
-*/
+/* ===== Variables ===== */
+:root{
+  --primary:#FF9A00; --primary-dark:#E68500;
+  --secondary:#F6F1E9;
+  --text-primary:#4F200D; --text-secondary:#5C483B;
+  --white:#fff;
 
-// ===== Global =====
-let currentUser = null;
-let sensorData = { timestamps: [], temperatures: [], humidities: [] };
-let sensorsRef = null, statusRef = null, lastSeenRef = null, offsetRef = null;
+  --gray-100:#f8f9fa; --gray-200:#e9ecef; --gray-300:#dee2e6;
+  --gray-400:#ced4da; --gray-500:#adb5bd; --gray-600:#6c757d;
+  --gray-700:#495057; --gray-800:#343a40;
 
-const db   = window.database;
-const auth = window.auth;
+  --start-1:#FFC83A; --start-2:#FF8A00;
+  --stop-1:#6B3F2E;  --stop-2:#4F2A1E;
+  --ref-1:#25A6F1;  --ref-2:#167BD9;
 
-// ===== Health / heartbeat =====
-let LAST_SEEN_MS = 0;          // dari /status/lastSeen (ms)
-let SERVER_OFFSET_MS = 0;      // .info/serverTimeOffset (ms) → serverNow = Date.now() + offset
-let lastAnyEventAt = 0;        // kapan terakhir TERIMA event RTDB (ms)
-let hbTimer = null;
-let deviceOnline = null;       // cache state
+  --spacer:1rem; --spacer-sm:.5rem; --spacer-lg:1.5rem; --spacer-xl:3rem;
+  --radius:.5rem; --radius-lg:1.25rem;
 
-// Thresholds (lebih ketat)
-const BEAT_MS   = 5000;        // ESP32 kirim setiap 5 dtk
-const FRESH_MS  = 7000;        // dianggap online bila lastSeen <= 7 dtk
-const QUIET_MS  = 10000;       // tak ada event apa pun >10 dtk → offline
-const STARTUP_GRACE_MS = 8000; // kalau 8 dtk pertama tak ada beat → offline
-
-// ===== Utilities =====
-function serverNow() { return Date.now() + (SERVER_OFFSET_MS || 0); }
-function log(...a){ console.log('[WD]', ...a); }
-
-// ===== Init =====
-document.addEventListener('DOMContentLoaded', () => {
-  // Safe default: kunci UI & tampilkan modal
-  setDeviceOnline(false);
-  showOfflineModal(true);
-
-  // Status koneksi browser → kalau offline, paksa UI offline
-  if (window.connectedRef) {
-    window.connectedRef.on('value', snap => {
-      const clientOnline = snap.val() === true;
-      if (!clientOnline || !navigator.onLine) updateOnlineState(false);
-      const el = document.getElementById('user-status');
-      if (el) {
-        const who = currentUser ? currentUser.email : 'Guest';
-        el.textContent = (clientOnline ? '🟢 ' : '🔴 ') + (who || 'Guest');
-      }
-    });
-  }
-  window.addEventListener('offline', () => updateOnlineState(false));
-
-  // Auth
-  auth.onAuthStateChanged(user => {
-    if (!user) { window.location.href = 'login.html'; return; }
-    currentUser = user;
-    const el = document.getElementById('user-status');
-    if (el) el.textContent = '👤 ' + user.email;
-    setupFirebase();
-  });
-
-  // Loading overlay auto-hide
-  setTimeout(() => {
-    const ov = document.getElementById('loading-overlay');
-    if (ov) ov.classList.add('hidden');
-  }, 900);
-
-  // Mulai watcher walaupun belum ada event (buat fallback awal)
-  startHeartbeatWatch();
-
-  // Grace-period awal: jika 8 dtk tidak ada beat, paksa offline
-  setTimeout(() => {
-    if (LAST_SEEN_MS === 0) {
-      log('No heartbeat during startup grace → force offline');
-      updateOnlineState(false);
-    }
-  }, STARTUP_GRACE_MS);
-
-  // Hemat resource saat tab di background
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) stopHeartbeatWatch(); else startHeartbeatWatch();
-  });
-});
-
-// ===== Firebase listeners =====
-function setupFirebase() {
-  if (!sensorsRef)   sensorsRef   = db.ref('sensors');
-  if (!statusRef)    statusRef    = db.ref('status');
-  if (!lastSeenRef)  lastSeenRef  = db.ref('status/lastSeen');        // lebih ringan
-  if (!offsetRef)    offsetRef    = db.ref('.info/serverTimeOffset'); // ms int
-
-  // Server time offset
-  offsetRef.on('value', snap => {
-    SERVER_OFFSET_MS = Number(snap.val() || 0);
-    log('server offset(ms)=', SERVER_OFFSET_MS);
-  });
-
-  // Sensor stream
-  sensorsRef.on('value', snapshot => {
-    lastAnyEventAt = Date.now();
-
-    const data = snapshot.val() || {};
-    const t = (typeof data.temperature === 'number') ? data.temperature : null;
-    const h = (typeof data.moisture    === 'number') ? data.moisture    : null;
-
-    document.getElementById('temp-value').textContent     = (t !== null) ? t.toFixed(1) : '--';
-    document.getElementById('humidity-value').textContent = (h !== null) ? h : '--';
-    if (t !== null) updateProgressBar('temp-progress', t, 100);
-    if (h !== null) updateProgressBar('humidity-progress', h, 100);
-
-    const now = new Date().toLocaleString();
-    sensorData.timestamps.push(now);
-    sensorData.temperatures.push(t ?? '');
-    sensorData.humidities.push(h ?? '');
-    if (sensorData.timestamps.length > 100) {
-      sensorData.timestamps.shift(); sensorData.temperatures.shift(); sensorData.humidities.shift();
-    }
-  });
-
-  // Status (ringan: value)
-  statusRef.on('value', snapshot => {
-    lastAnyEventAt = Date.now();
-
-    const data = snapshot.val() || {};
-    document.getElementById('status-value').textContent =
-      data.running ? 'RUNNING' : 'STOPPED';
-    document.getElementById('source-value').textContent =
-      data.lastCommandSource ? String(data.lastCommandSource).toUpperCase() : '--';
-  });
-
-  // Heartbeat (langsung pada path lastSeen)
-  lastSeenRef.on('value', snapshot => {
-    const v = snapshot.val();
-    LAST_SEEN_MS = (typeof v === 'number') ? v : Number(v || 0);
-    log('lastSeen(ms)=', LAST_SEEN_MS, ' age(ms)=', serverNow() - LAST_SEEN_MS);
-
-    // Evaluasi langsung saat heartbeat diterima
-    const fresh = (serverNow() - LAST_SEEN_MS) <= FRESH_MS;
-    updateOnlineState(fresh);
-  });
+  --shadow-sm:0 2px 6px rgba(20,20,20,.08);
+  --shadow:0 8px 20px rgba(20,20,20,.12);
+  --shadow-lg:0 18px 40px rgba(20,20,20,.18);
 }
 
-// ===== Watchdog =====
-function startHeartbeatWatch() {
-  if (hbTimer) return;
-  hbTimer = setInterval(() => {
-    const sNow = serverNow();
-
-    const beatFresh   = (LAST_SEEN_MS > 0) && ((sNow - LAST_SEEN_MS) <= FRESH_MS);
-    const streamFresh = (lastAnyEventAt > 0) && ((Date.now() - lastAnyEventAt) <= QUIET_MS);
-    const clientOk    = navigator.onLine;
-
-    const shouldBeOnline = beatFresh && streamFresh && clientOk;
-
-    // Debug ringan di console
-    // log('tick', {beatFresh, streamFresh, clientOk, age: sNow - LAST_SEEN_MS});
-
-    updateOnlineState(shouldBeOnline);
-  }, 2000);
+/* ===== Base ===== */
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial,sans-serif;
+  background:var(--secondary); color:var(--text-primary); line-height:1.6;
+  padding-bottom:70px;
 }
-function stopHeartbeatWatch() { if (hbTimer) { clearInterval(hbTimer); hbTimer = null; } }
+.container{max-width:1200px;margin:0 auto;padding:var(--spacer)}
 
-// ===== UI helpers =====
-function updateOnlineState(isOnline) {
-  if (deviceOnline === isOnline) return; // tidak berubah
-  deviceOnline = isOnline;
-  setDeviceOnline(isOnline);
+/* ===== Loading ===== */
+.loading-overlay{position:fixed;inset:0;background:rgba(255,255,255,.9);
+  display:flex;flex-direction:column;justify-content:center;align-items:center;
+  z-index:9999;transition:opacity .3s}
+.loading-overlay.hidden{opacity:0;pointer-events:none}
+.spinner{width:50px;height:50px;border:5px solid var(--gray-200);
+  border-top:5px solid var(--primary);border-radius:50%;animation:spin 1s linear infinite;margin-bottom:var(--spacer)}
+@keyframes spin{to{transform:rotate(360deg)}}
 
-  if (isOnline) {
-    showOfflineModal(false);
-    showToast('Perangkat Online', 'Koneksi mesin tersambung kembali', 'success', 1500);
-  } else {
-    showOfflineModal(true);
-    showToast('Perangkat Offline', 'Hubungkan koneksi internet pada Mesin', 'warning', 2500);
-  }
+/* ===== Header ===== */
+.main-header{
+  display:flex;justify-content:space-between;align-items:center;
+  background:linear-gradient(135deg,var(--primary),var(--primary-dark));
+  color:#fff;padding:var(--spacer);border-radius:var(--radius-lg);
+  margin-bottom:var(--spacer-lg);box-shadow:var(--shadow);position:relative;overflow:hidden
 }
-function setDeviceOnline(isOnline) {
-  const section = document.querySelector('.section');
-  if (!section) return;
-  if (isOnline) {
-    section.classList.remove('disabled');
-    setButtonsDisabled(false);
-  } else {
-    section.classList.add('disabled');
-    setButtonsDisabled(true);
-  }
-}
-function showOfflineModal(show) {
-  const modal = document.getElementById('device-offline-modal');
-  if (modal) modal.style.display = show ? 'block' : 'none';
-}
-function setButtonsDisabled(disabled) {
-  document.querySelectorAll('.control-btn').forEach(btn => btn.disabled = disabled);
-  const exportBtn = document.querySelector('.export-btn');
-  if (exportBtn) exportBtn.disabled = disabled;
-}
-function updateProgressBar(id, value, maxValue) {
-  const el = document.getElementById(id);
-  if (!el || typeof value !== 'number' || typeof maxValue !== 'number' || maxValue <= 0) return;
-  el.style.width = Math.max(0, Math.min(100, (value / maxValue) * 100)) + '%';
-}
+.logo-container{display:flex;align-items:center;gap:var(--spacer)}
+.logo{height:50px;width:auto;border-radius:.375rem;background:#fff;padding:5px;box-shadow:var(--shadow-sm)}
+.main-header h1{font-size:1.75rem;font-weight:700;margin:0}
+.user-info{display:flex;align-items:center;gap:var(--spacer)}
+#user-status{background:rgba(255,255,255,.2);padding:.5rem 1rem;border-radius:20px;font-size:.9rem;backdrop-filter:blur(4px)}
 
-// ===== Commands =====
-function sendCommand(action) {
-  if (!currentUser) return showToast('Akses Ditolak','Silakan login dulu','warning');
-  if (deviceOnline === false) return showToast('Perangkat Offline','Tidak dapat mengirim perintah','warning');
-
-  setButtonsDisabled(true);
-  db.ref('controls/action').set(action)
-    .then(() => {
-      showToast('Perintah Dikirim', action === 'start' ? 'Sistem akan dihidupkan' : 'Sistem akan dihentikan', 'info');
-      setTimeout(() => db.ref('controls/action').set('').finally(() => setButtonsDisabled(false)), 900);
-    })
-    .catch(err => {
-      setButtonsDisabled(false);
-      showToast('Error', 'Gagal mengirim perintah: ' + err.message, 'error');
-    });
+/* Tombol Logout (header) — rounded & gradien */
+.auth-button{
+  display:inline-flex; align-items:center; gap:.5rem;
+  padding:.5rem 1rem;
+  border:0; border-radius:9999px;
+  color:#fff; cursor:pointer; font-weight:600;
+  background-image:linear-gradient(135deg,var(--stop-1),var(--stop-2));
+  box-shadow:0 6px 14px rgba(44,23,14,.22), inset 0 0 0 1px rgba(255,255,255,.08);
+  transition:transform .15s ease, box-shadow .15s ease, filter .15s ease;
 }
-
-// REFRESH = soft reset (reboot)
-function refreshData() {
-  if (!currentUser)  return showToast('Akses Ditolak', 'Silakan login dulu', 'warning');
-  if (deviceOnline === false) return showToast('Perangkat Offline','Tidak bisa reboot saat offline','warning');
-
-  setButtonsDisabled(true);
-  db.ref('controls/action').set('reboot')
-    .then(() => {
-      showToast('Reboot', 'Meminta perangkat untuk restart…', 'info', 1500);
-      setTimeout(() => db.ref('controls/action').set('').finally(() => setButtonsDisabled(false)), 900);
-    })
-    .catch(err => {
-      setButtonsDisabled(false);
-      showToast('Error', 'Gagal kirim reboot: ' + err.message, 'error');
-    });
+.auth-button i{font-size:1rem}
+.auth-button:hover{transform:translateY(-2px); box-shadow:0 10px 22px rgba(44,23,14,.28)}
+.auth-button:active{transform:translateY(0); filter:brightness(.97)}
+.auth-button:focus-visible{
+  outline:0;
+  box-shadow:0 0 0 3px rgba(255,255,255,.9), 0 0 0 6px rgba(79,42,30,.35);
 }
+/* opsional kalau ingin disembunyikan via JS: tambahkan class .hidden */
+.auth-button.hidden{display:none !important}
 
-// ===== Export =====
-function exportData() {
-  if (!currentUser) return showToast('Akses Ditolak','Silakan login dulu','warning');
-  let csv = "data:text/csv;charset=utf-8,";
-  csv += "Timestamp,Suhu (°C),Kelembapan (%)\n";
-  for (let i = 0; i < sensorData.timestamps.length; i++) {
-    csv += `${sensorData.timestamps[i]},${sensorData.temperatures[i]},${sensorData.humidities[i]}\n`;
-  }
-  const a = document.createElement("a");
-  a.href = encodeURI(csv);
-  a.download = "sensor_data_" + new Date().toISOString().slice(0,10) + ".csv";
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  showToast('Export Berhasil', 'Data sensor telah diunduh', 'success');
+/* ===== Cards ===== */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:var(--spacer-lg);margin-bottom:var(--spacer-xl)}
+.stat-card{background:#fff;border-radius:var(--radius-lg);padding:var(--spacer-lg);box-shadow:var(--shadow);border:1px solid var(--gray-200);position:relative;overflow:hidden}
+.stat-card::before{content:'';position:absolute;inset:0 0 auto 0;height:5px;background:linear-gradient(90deg,var(--primary),var(--primary-dark))}
+.card-header{display:flex;align-items:center;gap:var(--spacer);margin-bottom:var(--spacer)}
+.card-header h3{margin:0;font-size:1.25rem}
+.icon-temperature{color:#ff6b6b;font-size:1.5rem}
+.icon-humidity{color:#4895ef;font-size:1.5rem}
+.icon-status{color:#4cc9f0;font-size:1.5rem}
+.card-content{text-align:center;margin-bottom:var(--spacer)}
+.value{font-size:2.5rem;font-weight:700;margin:.5rem 0}
+.unit{color:var(--text-secondary);font-size:1rem;margin:0}
+.status-source{display:flex;justify-content:center;align-items:center;gap:.5rem;font-size:.9rem;color:var(--text-secondary)}
+.source-label{font-weight:600}.source-text{font-weight:500;text-transform:uppercase}
+.progress-container{margin-top:var(--spacer)}
+.progress-bar{height:10px;background:var(--gray-200);border-radius:5px;overflow:hidden;margin-bottom:.5rem;position:relative}
+.progress-bar::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,var(--primary),var(--primary-dark));border-radius:5px;opacity:.3;z-index:1}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--primary),var(--primary-dark));border-radius:5px;width:0%;transition:width .5s ease;z-index:2}
+.progress-labels{display:flex;justify-content:space-between;font-size:.8rem;color:var(--text-secondary)}
+
+/* ===== Section & Disabled ===== */
+.section{background:#fff;border-radius:var(--radius-lg);padding:var(--spacer-lg);margin-bottom:var(--spacer-xl);box-shadow:var(--shadow);border:1px solid var(--gray-200);position:relative;overflow:hidden}
+.section::before{content:'';position:absolute;inset:0 0 auto 0;height:5px;background:linear-gradient(90deg,var(--primary),var(--primary-dark))}
+.section.disabled{ filter: grayscale(.15) opacity(.6); pointer-events: none; transition: filter .2s ease;}
+.section-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--spacer-lg);flex-wrap:wrap;gap:var(--spacer)}
+.section-header h2{margin:0;font-size:1.5rem;display:flex;align-items:center;gap:.75rem}
+.export-btn{background:var(--primary);color:#fff;border:0;padding:.75rem 1.5rem;border-radius:var(--radius-lg);cursor:pointer;font-size:.9rem;font-weight:500;transition:.2s;display:flex;align-items:center;gap:.5rem}
+.export-btn:hover{background:var(--primary-dark);transform:translateY(-2px);box-shadow:0 4px 8px rgba(0,0,0,.1)}
+
+/* ===== Control Buttons ===== */
+.control-buttons{display:flex;gap:var(--spacer);flex-wrap:wrap}
+.control-btn{
+  --btn-h:56px;
+  flex:1;min-width:170px;height:var(--btn-h);padding:0 1.15rem;border:0;border-radius:28px;
+  cursor:pointer;font-size:1rem;font-weight:800;letter-spacing:.02em;
+  display:inline-flex;align-items:center;justify-content:center;gap:.65rem;
+  position:relative;overflow:hidden;
+  box-shadow:0 10px 24px rgba(0,0,0,.12);
+  transition:transform .18s ease, box-shadow .18s ease, filter .18s ease;
 }
+.control-btn::before{content:"";position:absolute;inset:0 0 55% 0;background:linear-gradient(to bottom,rgba(255,255,255,.18),rgba(255,255,255,0))}
+.control-btn::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px rgba(255,255,255,.15), inset 0 -1px 0 rgba(0,0,0,.05)}
+.control-btn:hover{transform:translateY(-3px);box-shadow:0 16px 34px rgba(0,0,0,.16);filter:brightness(1.03)}
+.control-btn:active{transform:translateY(-1px);box-shadow:0 10px 22px rgba(0,0,0,.14);filter:brightness(.98)}
+.control-btn:focus-visible{outline:0;box-shadow:0 0 0 4px rgba(255,255,255,.9),0 0 0 8px rgba(255,154,0,.28)}
+.control-btn:disabled{opacity:.6;cursor:not-allowed;filter:saturate(.75)}
+.control-btn i{font-size:1.05rem}
+.btn-success{background-image:linear-gradient(135deg,var(--start-1),var(--start-2));color:#1a1a1a}
+.btn-danger{background-image:linear-gradient(135deg,var(--stop-1),var(--stop-2));color:#fff}
+.btn-info{background-image:linear-gradient(135deg,var(--ref-1),var(--ref-2));color:#fff}
 
-// ===== Toast =====
-function showToast(title, message, type = 'info', duration = 5000) {
-  const existing = document.querySelector('.toast'); if (existing) existing.remove();
-  const toast = document.createElement('div');
-  toast.className = `toast toast-${type} show`;
-  let icon = 'ℹ️'; if (type==='success') icon='✅'; else if (type==='warning') icon='⚠️'; else if (type==='error') icon='❌';
-  toast.innerHTML = `
-    <div class="toast-icon">${icon}</div>
-    <div class="toast-content">
-      <div class="toast-title">${title}</div>
-      <p class="toast-message">${message}</p>
-    </div>
-    <button class="toast-close">&times;</button>
-  `;
-  document.body.appendChild(toast);
-  toast.querySelector('.toast-close').addEventListener('click', () => {
-    toast.style.animation = 'toastSlideOut 0.3s forwards';
-    setTimeout(() => toast.remove(), 300);
-  });
-  if (duration > 0) setTimeout(() => {
-    toast.style.animation = 'toastSlideOut 0.3s forwards';
-    setTimeout(() => toast.remove(), 300);
-  }, duration);
+/* ===== Modal ===== */
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;backdrop-filter:blur(5px)}
+.modal-content{background:#fff;margin:5% auto;padding:0;border-radius:var(--radius-lg);width:90%;max-width:500px;box-shadow:var(--shadow-lg);animation:modalSlideIn .3s ease-out}
+@keyframes modalSlideIn{from{opacity:0;transform:translateY(-50px)}to{opacity:1;transform:translateY(0)}}
+.modal-header{padding:var(--spacer-lg);border-bottom:1px solid var(--gray-200);display:flex;justify-content:space-between;align-items:center}
+.modal-header h2{margin:0;font-size:1.5rem;display:flex;align-items:center;gap:.75rem}
+.close{font-size:2rem;font-weight:700;cursor:pointer;color:var(--text-secondary);transition:.2s}
+.close:hover{color:var(--text-primary)}
+.modal-body{padding:var(--spacer-lg)}
+.modal-footer{padding:var(--spacer-lg);border-top:1px solid var(--gray-200);display:flex;justify-content:flex-end;gap:var(--spacer)}
+
+/* ===== Buttons (modal) – upgrade look & feel ===== */
+.btn {
+  display: inline-flex; align-items: center; gap: .5rem;
+  padding: .65rem 1.2rem; border: 0; border-radius: 14px;
+  font-weight: 700; letter-spacing: .02em; cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
+  user-select: none;
 }
-
-// ===== Modal & unload =====
-function toggleAuth(){ const m=document.getElementById('logout-modal'); if(m) m.style.display=(m.style.display==='block')?'none':'block'; }
-function closeModal(){ const m=document.getElementById('logout-modal'); if(m) m.style.display='none'; }
-function logout(){
-  auth.signOut()
-    .then(()=>{ showToast('Logout Berhasil','Anda telah keluar dari sistem','success'); setTimeout(()=>{ window.location.href='login.html'; },1200); })
-    .catch(e => showToast('Error Logout','Gagal logout: '+e.message,'error'));
+.btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+.btn:active { transform: translateY(0); filter: brightness(.97); }
+.btn:focus-visible{
+  outline:0;
+  box-shadow:0 0 0 3px rgba(255,255,255,.95), 0 0 0 6px rgba(79, 42, 30, .35);
 }
+.btn-secondary{ background: linear-gradient(135deg, #7a8691, #5a6268); color:#fff; }
+.btn-danger{
+  background-image: linear-gradient(135deg, var(--stop-1), var(--stop-2));
+  color:#fff;
+  box-shadow: 0 10px 24px rgba(44,23,14,.28),
+              inset 0 0 0 1px rgba(255,255,255,.06);
+}
+.btn .btn-icon{ width:1rem; height:1rem; font-size:1rem; line-height:1; }
 
-window.addEventListener('beforeunload', () => {
-  if (sensorsRef) sensorsRef.off();
-  if (statusRef)  statusRef.off();
-  if (lastSeenRef) lastSeenRef.off();
-  if (offsetRef)   offsetRef.off();
-  stopHeartbeatWatch();
-});
+/* ===== Toast ===== */
+.toast{
+  position:fixed; top:20px; right:20px;
+  background:#fff; border-radius:var(--radius-lg);
+  padding:1rem 1.5rem; box-shadow:var(--shadow-lg);
+  border-left:4px solid var(--primary); z-index:5000;
+  transform:translateX(120%); transition:transform .3s cubic-bezier(.4,0,.2,1);
+  max-width:360px; display:flex; align-items:flex-start; gap:1rem;
+}
+.toast.show{transform:translateX(0)}
+.toast-icon{font-size:1.5rem;margin-top:.25rem}
+.toast-success .toast-icon{color:#06d6a0}
+.toast-warning .toast-icon{color:#ffd166}
+.toast-error .toast-icon{color:#ef476f}
+.toast-info .toast-icon{color:#118ab2}
+.toast-content{flex:1}
+.toast-title{font-weight:600;margin-bottom:.25rem}
+.toast-message{font-size:.9rem;color:var(--text-secondary);margin:0}
+.toast-close{background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--text-secondary);padding:0;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:4px;transition:.2s}
+.toast-close:hover{background:var(--gray-100);color:var(--text-primary)}
 
-// Expose ke HTML
-window.sendCommand = sendCommand;
-window.refreshData = refreshData;
-window.toggleAuth  = toggleAuth;
-window.closeModal  = closeModal;
-window.logout      = logout;
-window.showOfflineModal = showOfflineModal;
+/* ===== Mobile nav ===== */
+.mobile-nav{position:fixed;left:0;bottom:0;width:100%;background:#fff;display:none;justify-content:space-around;padding:.75rem 0;box-shadow:0 -2px 10px rgba(0,0,0,.1);border-top:1px solid var(--gray-200);z-index:100}
+.nav-item{display:flex;flex-direction:column;align-items:center;gap:.25rem;padding:.5rem;text-decoration:none;color:var(--text-secondary);font-size:.75rem;transition:.2s}
+.nav-item i{font-size:1.25rem}
+.nav-item:hover,.nav-item.active{color:var(--primary)}
+
+/* ===== Responsive ===== */
+@media (max-width:992px){
+  .stats-grid{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .control-buttons{flex-direction:column}
+  .control-btn{width:100%;min-width:0}
+}
+@media (max-width:768px){
+  .container{padding:var(--spacer-sm)}
+  .main-header{padding:var(--spacer-sm);flex-direction:column;gap:var(--spacer)}
+  .logo-container{width:100%;justify-content:center}
+  .header-right{width:100%;justify-content:center}
+  .section-header{flex-direction:column;align-items:flex-start}
+  .export-btn{align-self:flex-end}
+  .mobile-nav{display:flex}
+  body{padding-bottom:70px}
+}
+@media (max-width:576px){
+  .stat-card{padding:var(--spacer)}
+  .card-header h3{font-size:1.1rem}
+  .value{font-size:2rem}
+  .section{padding:var(--spacer)}
+  .section-header h2{font-size:1.25rem}
+  .modal-content{width:95%;margin:10% auto}
+}
