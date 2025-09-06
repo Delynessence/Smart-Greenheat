@@ -2,6 +2,7 @@
    - Chart.js realtime (Suhu & Kelembapan) + filter 15m/1h/6h/24h/All
    - Deteksi perangkat offline (modal + disable kontrol) via /status/lastSeen + .info/connected
    - Export CSV dari buffer data
+   - Perintah Ganti Wi-Fi (wifi_reconfig) dari dashboard
 */
 
 let currentUser = null;
@@ -17,7 +18,7 @@ const db   = window.database;
 const auth = window.auth;
 let sensorsRef=null, statusRef=null, lastSeenRef=null, offsetRef=null, connectedRef=null;
 
-// Heartbeat
+// Heartbeat (deteksi online)
 let LAST_SEEN_MS = 0;            // server timestamp dari RTDB (/status/lastSeen)
 let SERVER_OFFSET_MS = 0;        // .info/serverTimeOffset (ms)
 let lastAnyEventAt = 0;          // kapan pun ada event RTDB (ms dari client)
@@ -25,7 +26,6 @@ let hbTimer = null;
 let deviceOnline = null;
 
 // Ambang
-const BEAT_MS   = 5000;          // ESP update ts tiap ~5s
 const FRESH_MS  = 7000;          // lastSeen <= 7s → online
 const QUIET_MS  = 10000;         // tak ada event >10s → offline
 const STARTUP_GRACE_MS = 8000;   // 8s awal tanpa beat → offline
@@ -112,7 +112,7 @@ function setupFirebase(){
     if (t !== null) setProgress('temp-progress', t, 100);
     if (h !== null) setProgress('humidity-progress', h, 100);
 
-    // Simpan raw (pakai waktu client; chart label pakai locale)
+    // Simpan raw (pakai waktu client)
     const ts = Date.now();
     store.raw.ts.push(ts);
     store.raw.t.push(t);
@@ -270,12 +270,9 @@ function updateOnlineState(isOnline){
   }
 }
 function setDeviceOnline(isOnline){
-  document.querySelectorAll('.section').forEach(sec=>{
-    // biarkan grafik tetap aktif; tapi kontrol dipaksa nonaktif
-    if (sec.id === 'control-section') {
-      sec.classList.toggle('disabled', !isOnline);
-    }
-  });
+  // Biarkan grafik aktif; kontrol saja yang dikunci
+  const ctrl = document.getElementById('control-section');
+  if (ctrl) ctrl.classList.toggle('disabled', !isOnline);
   setButtonsDisabled(!isOnline);
 }
 function showOfflineModal(show){
@@ -285,6 +282,7 @@ function showOfflineModal(show){
 function setButtonsDisabled(disabled){
   document.querySelectorAll('.control-btn').forEach(b=>b.disabled = disabled);
   const exportBtn=document.querySelector('.export-btn'); if (exportBtn) exportBtn.disabled = disabled;
+  const wifiBtn=document.querySelector('.wifi-btn'); if (wifiBtn) wifiBtn.disabled = disabled;
 }
 function setText(id, text){ const el=document.getElementById(id); if (el) el.textContent = text; }
 function setProgress(id, value, maxValue){
@@ -326,7 +324,7 @@ function sendCommand(action){
     .catch(err=>{ setButtonsDisabled(false); showToast('Error','Gagal kirim: '+err.message,'error'); });
 }
 
-// REFRESH → minta reboot (soft reset). Bila tak ingin reboot, ganti 'reboot' => ''.
+// REFRESH → minta reboot (soft reset).
 function refreshData(){
   if (!currentUser) { showToast('Akses Ditolak','Silakan login dulu','warning'); return; }
   if (deviceOnline===false){ showToast('Perangkat Offline','Tidak bisa reboot saat offline','warning'); return; }
@@ -338,6 +336,22 @@ function refreshData(){
       setTimeout(()=> db.ref('controls/action').set('').finally(()=>setButtonsDisabled(false)), 900);
     })
     .catch(err=>{ setButtonsDisabled(false); showToast('Error','Gagal kirim reboot: '+err.message,'error'); });
+}
+
+// Minta ESP32 hapus kredensial Wi-Fi & reboot ke portal
+function requestWifiReconfig(){
+  if (!currentUser) { showToast('Akses Ditolak','Silakan login dulu','warning'); return; }
+  if (deviceOnline===false){ showToast('Perangkat Offline','Tidak bisa ganti Wi-Fi saat offline','warning'); return; }
+
+  if (!confirm('Perangkat akan masuk mode Setup Wi-Fi (AP). Lanjutkan?')) return;
+
+  setButtonsDisabled(true);
+  db.ref('controls/action').set('wifi_reconfig')
+    .then(()=>{
+      showToast('Ganti Wi-Fi', 'Perangkat akan masuk mode Setup…', 'info', 2000);
+      setTimeout(()=> db.ref('controls/action').set('').finally(()=>setButtonsDisabled(false)), 900);
+    })
+    .catch(err=>{ setButtonsDisabled(false); showToast('Error','Gagal kirim perintah Wi-Fi: '+err.message,'error'); });
 }
 
 // ===== Export CSV =====
@@ -398,3 +412,4 @@ window.toggleAuth  = toggleAuth;
 window.closeModal  = closeModal;
 window.logout      = logout;
 window.showOfflineModal = showOfflineModal;
+window.requestWifiReconfig = requestWifiReconfig;
