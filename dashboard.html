@@ -5,10 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
   <title>Dashboard - Smart GreenHeat</title>
 
-  <!-- Pakai CSS dashboard (simpan sebagai css/dashboard.css) -->
   <link rel="stylesheet" href="css/dashboard.css" />
-
-  <!-- Icon FontAwesome -->
   <link rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 </head>
@@ -31,7 +28,6 @@
       <div class="header-right">
         <div class="user-info">
           <span id="user-status">👤 Guest</span>
-          <!-- Disembunyikan sampai user login -->
           <button id="auth-btn" class="auth-button" type="button"
                   onclick="toggleAuth()" style="display:none"
                   aria-label="Logout" title="Logout">
@@ -135,6 +131,27 @@
         <div class="modal-footer">
           <button class="btn-secondary" type="button" onclick="closeModal()">Batal</button>
           <button class="btn-danger" type="button" onclick="logout()">Logout</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Mesin Offline -->
+    <div id="device-offline-modal" class="modal" aria-hidden="true">
+      <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="offline-title">
+        <div class="modal-header">
+          <h2 id="offline-title"><i class="fas fa-wifi-slash" aria-hidden="true"></i> Mesin Offline</h2>
+          <span class="close" role="button" tabindex="0" onclick="showOfflineModal(false)" aria-label="Tutup">&times;</span>
+        </div>
+        <div class="modal-body">
+          <p><strong>Hubungkan koneksi internet pada Mesin</strong> agar kontrol dapat digunakan.</p>
+          <ul style="margin-left:1rem">
+            <li>Periksa Wi-Fi/internet ESP32</li>
+            <li>Pastikan daya menyala</li>
+            <li>Tunggu beberapa detik hingga terhubung kembali</li>
+          </ul>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" type="button" onclick="showOfflineModal(false)">Tutup</button>
         </div>
       </div>
     </div>
