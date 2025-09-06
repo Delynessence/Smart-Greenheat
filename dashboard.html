@@ -28,10 +28,11 @@
       <div class="header-right">
         <div class="user-info">
           <span id="user-status">👤 Guest</span>
+          <!-- HAPUS display:none supaya kelihatan -->
           <button id="auth-btn" class="auth-button" type="button"
-                  onclick="toggleAuth()" style="display:none"
-                  aria-label="Logout" title="Logout">
-            <i class="fas fa-sign-out-alt"></i> Logout
+                  onclick="toggleAuth()" aria-label="Logout" title="Logout">
+            <i class="fas fa-right-from-bracket" aria-hidden="true"></i>
+            Logout
           </button>
         </div>
       </div>
@@ -129,7 +130,6 @@
           <p>Apakah Anda yakin ingin keluar dari dashboard?</p>
         </div>
         <div class="modal-footer">
-          <!-- tombol baru yang lebih menarik -->
           <button class="btn btn-secondary" type="button" onclick="closeModal()">
             <i class="fas fa-times btn-icon" aria-hidden="true"></i> Batal
           </button>
