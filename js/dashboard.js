@@ -2,18 +2,14 @@
 let currentUser = null;
 let sensorData = { timestamps: [], temperatures: [], humidities: [] };
 
-// refs global
+// refs
 let sensorsRef = null;
 let statusRef  = null;
 
-// helper ambil objek compat dari window (dibuat di firebase-config.js)
 const db   = window.database;
 const auth = window.auth;
 
-// ====== Init ======
 document.addEventListener('DOMContentLoaded', function () {
-
-  // (opsional) status koneksi client RTDB
   if (window.connectedRef) {
     window.connectedRef.on('value', snap => {
       const online = snap.val() === true;
@@ -25,14 +21,13 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  // Auth
   auth.onAuthStateChanged(function (user) {
     if (user) {
       currentUser = user;
       const el = document.getElementById('user-status');
       if (el) el.textContent = '👤 ' + user.email;
 
-      setDeviceOnline(false); // default sebelum heartbeat terverifikasi
+      setDeviceOnline(false); // default: tunggu heartbeat
       setupFirebase();
 
       const btn = document.getElementById('auth-btn');
@@ -42,22 +37,18 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
 
-  // Loading overlay auto-hide
   setTimeout(() => {
     const ov = document.getElementById('loading-overlay');
     if (ov) ov.classList.add('hidden');
   }, 1500);
 });
 
-// ====== Firebase listeners ======
 function setupFirebase() {
   if (!sensorsRef) sensorsRef = db.ref('sensors');
   if (!statusRef)  statusRef  = db.ref('status');
 
-  // Sensor stream
   sensorsRef.on('value', function (snapshot) {
     const data = snapshot.val() || {};
-
     const t = (typeof data.temperature === 'number') ? data.temperature : null;
     const h = (typeof data.moisture    === 'number') ? data.moisture    : null;
 
@@ -67,12 +58,10 @@ function setupFirebase() {
     if (t !== null) updateProgressBar('temp-progress', t, 100);
     if (h !== null) updateProgressBar('humidity-progress', h, 100);
 
-    // Simpan untuk export
     const now = new Date().toLocaleString();
     sensorData.timestamps.push(now);
     sensorData.temperatures.push(t !== null ? t : '');
     sensorData.humidities.push(h !== null ? h : '');
-
     if (sensorData.timestamps.length > 100) {
       sensorData.timestamps.shift();
       sensorData.temperatures.shift();
@@ -80,22 +69,20 @@ function setupFirebase() {
     }
   });
 
-  // Status stream — pakai heartbeat dari ESP
   statusRef.on('value', function (snapshot) {
     const data = snapshot.val() || {};
 
     const running = !!data.running;
     document.getElementById('status-value').textContent = running ? 'RUNNING' : 'STOPPED';
     document.getElementById('source-value').textContent = data.lastCommandSource
-      ? String(data.lastCommandSource).toUpperCase()
-      : '--';
+      ? String(data.lastCommandSource).toUpperCase() : '--';
 
-    const espOnline = !!data.espOnline;
-    const lastSeen  = (typeof data.lastSeen === 'number') ? data.lastSeen : 0; // server ts (ms)
-    const FRESH_MS  = 15000;
+    // HEARTBEAT ONLY: anggap online jika lastSeen < 15 dtk
+    const lastSeen = (typeof data.lastSeen === 'number') ? data.lastSeen : 0; // ms (server)
+    const FRESH_MS = 15000;
+    const alive = (Date.now() - lastSeen) < FRESH_MS;
 
-    const fresh = (Date.now() - lastSeen) < FRESH_MS;
-    setDeviceOnline(espOnline && fresh);
+    setDeviceOnline(alive);
   });
 }
 
@@ -106,13 +93,11 @@ function updateProgressBar(elementId, value, maxValue) {
   const pct = Math.max(0, Math.min(100, (value / maxValue) * 100));
   el.style.width = pct + '%';
 }
-
 function setButtonsDisabled(disabled) {
   document.querySelectorAll('.control-btn').forEach(btn => { btn.disabled = disabled; });
   const exportBtn = document.querySelector('.export-btn');
   if (exportBtn) exportBtn.disabled = disabled;
 }
-
 function setDeviceOnline(isOnline) {
   const section = document.querySelector('.section');
   const exportBtn = document.querySelector('.export-btn');
@@ -123,27 +108,17 @@ function setDeviceOnline(isOnline) {
     setButtonsDisabled(false);
     if (exportBtn) exportBtn.disabled = false;
     showOfflineModal(false);
-
     const el = document.getElementById('user-status');
-    if (el) {
-      const who = currentUser ? currentUser.email : 'Guest';
-      el.textContent = `🟢 ${who}`;
-    }
+    if (el) { const who = currentUser ? currentUser.email : 'Guest'; el.textContent = `🟢 ${who}`; }
   } else {
     section.classList.add('disabled');
     setButtonsDisabled(true);
     if (exportBtn) exportBtn.disabled = true;
     showOfflineModal(true);
-
     const el = document.getElementById('user-status');
-    if (el) {
-      const who = currentUser ? currentUser.email : 'Guest';
-      el.textContent = `🔴 ${who}`;
-    }
+    if (el) { const who = currentUser ? currentUser.email : 'Guest'; el.textContent = `🔴 ${who}`; }
   }
 }
-
-// Modal helper
 function showOfflineModal(show) {
   const modal = document.getElementById('device-offline-modal');
   if (!modal) return;
@@ -166,13 +141,12 @@ function sendCommand(action) {
       }, 1000);
     })
     .catch(function (error) {
-      console.error('Error:', error);
       setButtonsDisabled(false);
       showToast('Error', 'Gagal mengirim perintah: ' + error.message, 'error');
     });
 }
 
-// >>> REFRESH = minta SOFT RESET (reboot) ke ESP
+// REFRESH = minta SOFT RESET (reboot)
 function refreshData() {
   if (!currentUser) {
     showToast('Akses Ditolak', 'Silakan login dulu', 'warning');
@@ -194,11 +168,7 @@ function refreshData() {
 
 // ====== Export ======
 function exportData() {
-  if (!currentUser) {
-    showToast('Akses Ditolak', 'Silakan login dulu untuk mengekspor data', 'warning');
-    return;
-  }
-
+  if (!currentUser) { showToast('Akses Ditolak', 'Silakan login dulu untuk mengekspor data', 'warning'); return; }
   let csv = "data:text/csv;charset=utf-8,";
   csv += "Timestamp,Suhu (°C),Kelembapan (%)\n";
   for (let i = 0; i < sensorData.timestamps.length; i++) {
@@ -214,23 +184,14 @@ function exportData() {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-
   showToast('Export Berhasil', 'Data sensor telah diunduh', 'success');
 }
 
 // ====== Toast ======
 function showToast(title, message, type = 'info', duration = 5000) {
-  const existing = document.querySelector('.toast');
-  if (existing) existing.remove();
-
-  const toast = document.createElement('div');
-  toast.className = `toast toast-${type} show`;
-
-  let icon = 'ℹ️';
-  if (type === 'success') icon = '✅';
-  else if (type === 'warning') icon = '⚠️';
-  else if (type === 'error') icon = '❌';
-
+  const existing = document.querySelector('.toast'); if (existing) existing.remove();
+  const toast = document.createElement('div'); toast.className = `toast toast-${type} show`;
+  let icon = 'ℹ️'; if (type==='success') icon='✅'; else if (type==='warning') icon='⚠️'; else if (type==='error') icon='❌';
   toast.innerHTML = `
     <div class="toast-icon">${icon}</div>
     <div class="toast-content">
@@ -240,12 +201,10 @@ function showToast(title, message, type = 'info', duration = 5000) {
     <button class="toast-close">&times;</button>
   `;
   document.body.appendChild(toast);
-
   toast.querySelector('.toast-close').addEventListener('click', () => {
     toast.style.animation = 'toastSlideOut 0.3s forwards';
     setTimeout(() => toast.remove(), 300);
   });
-
   if (duration > 0) {
     setTimeout(() => {
       toast.style.animation = 'toastSlideOut 0.3s forwards';
@@ -255,36 +214,18 @@ function showToast(title, message, type = 'info', duration = 5000) {
 }
 
 // ====== Modal & Unload ======
-function toggleAuth() {
-  const modal = document.getElementById('logout-modal');
-  if (!modal) return;
-  modal.style.display = (modal.style.display === 'block') ? 'none' : 'block';
+function toggleAuth(){ const m=document.getElementById('logout-modal'); if(!m) return; m.style.display = (m.style.display==='block')?'none':'block'; }
+function closeModal(){ const m=document.getElementById('logout-modal'); if(m) m.style.display='none'; }
+function logout(){
+  auth.signOut().then(function(){ showToast('Logout Berhasil','Anda telah keluar dari sistem','success'); setTimeout(()=>{ window.location.href='login.html'; },1500); })
+    .catch(function(e){ showToast('Error Logout','Gagal logout: '+e.message,'error'); });
 }
-function closeModal() {
-  const modal = document.getElementById('logout-modal');
-  if (modal) modal.style.display = 'none';
-}
-function logout() {
-  auth.signOut()
-    .then(function () {
-      showToast('Logout Berhasil', 'Anda telah keluar dari sistem', 'success');
-      setTimeout(() => { window.location.href = 'login.html'; }, 1500);
-    })
-    .catch(function (error) {
-      console.error('Error:', error);
-      showToast('Error Logout', 'Gagal logout: ' + error.message, 'error');
-    });
-}
+window.addEventListener('beforeunload', function () { if (sensorsRef) sensorsRef.off(); if (statusRef)  statusRef.off(); });
 
-window.addEventListener('beforeunload', function () {
-  if (sensorsRef) sensorsRef.off();
-  if (statusRef)  statusRef.off();
-});
-
-// Expose untuk HTML
-window.sendCommand      = sendCommand;
-window.refreshData      = refreshData;
-window.toggleAuth       = toggleAuth;
-window.closeModal       = closeModal;
-window.logout           = logout;
+// Expose
+window.sendCommand = sendCommand;
+window.refreshData = refreshData;
+window.toggleAuth  = toggleAuth;
+window.closeModal  = closeModal;
+window.logout      = logout;
 window.showOfflineModal = showOfflineModal;
