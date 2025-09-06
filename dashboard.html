@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
@@ -95,7 +95,7 @@
     </div>
 
     <!-- Grafik Sensor -->
-    <div class="section">
+    <div class="section" id="chart-section">
       <div class="section-header">
         <h2><i class="fas fa-chart-line" aria-hidden="true"></i> Grafik Sensor</h2>
         <div class="range-tabs" role="tablist" aria-label="Rentang waktu grafik">
@@ -115,9 +115,14 @@
     <div class="section" id="control-section">
       <div class="section-header">
         <h2><i class="fas fa-bolt" aria-hidden="true"></i> Kontrol Sistem</h2>
-        <button class="export-btn" type="button" onclick="exportData()">
-          <i class="fas fa-download" aria-hidden="true"></i> Export
-        </button>
+        <div class="control-right">
+          <button class="export-btn" type="button" onclick="exportData()">
+            <i class="fas fa-download" aria-hidden="true"></i> Export
+          </button>
+          <button class="wifi-btn" type="button" onclick="requestWifiReconfig()">
+            <i class="fas fa-wifi" aria-hidden="true"></i> Ganti Wi-Fi
+          </button>
+        </div>
       </div>
 
       <div class="control-buttons">
@@ -208,7 +213,7 @@
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
-  <!-- Inisialisasi Firebase -->
+  <!-- Inisialisasi Firebase (punyamu) -->
   <script src="firebase-config.js"></script>
 
   <!-- Logic dashboard -->
