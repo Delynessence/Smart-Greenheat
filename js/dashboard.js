@@ -1,14 +1,8 @@
-// dashboard.js — versi diperbarui
-
 // ====== Global state ======
 let currentUser = null;
-let sensorData = {
-  timestamps: [],
-  temperatures: [],
-  humidities: []
-};
+let sensorData = { timestamps: [], temperatures: [], humidities: [] };
 
-// refs global biar bisa di-off saat unload
+// refs global
 let sensorsRef = null;
 let statusRef  = null;
 
@@ -19,7 +13,7 @@ const auth = window.auth;
 // ====== Init ======
 document.addEventListener('DOMContentLoaded', function () {
 
-  // (opsional) Tampilkan status koneksi RTDB
+  // (opsional) Tampilkan status koneksi RTDB client (bukan ESP)
   if (window.connectedRef) {
     window.connectedRef.on('value', snap => {
       const online = snap.val() === true;
@@ -31,20 +25,21 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  // Auth (mode default: butuh login)
+  // Auth
   auth.onAuthStateChanged(function (user) {
     if (user) {
       currentUser = user;
       const el = document.getElementById('user-status');
       if (el) el.textContent = '👤 ' + user.email;
-      setupFirebase();
-    } else {
-      // === Kalau mau TEST tanpa login, hapus redirect & set guest ===
-      // currentUser = { email: 'guest@local' };
-      // document.getElementById('user-status').textContent = '👤 Guest';
-      // setupFirebase(); return;
 
-      // Production: redirect ke login
+      // Default: anggap offline hingga heartbeat terverifikasi
+      setDeviceOnline(false);
+
+      setupFirebase();
+      // tampilkan tombol logout
+      const btn = document.getElementById('auth-btn');
+      if (btn) btn.style.display = 'inline-flex';
+    } else {
       window.location.href = 'login.html';
     }
   });
@@ -58,7 +53,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
 // ====== Firebase listeners ======
 function setupFirebase() {
-  // Pastikan ref tunggal (hindari dobel listener)
   if (!sensorsRef) sensorsRef = db.ref('sensors');
   if (!statusRef)  statusRef  = db.ref('status');
 
@@ -66,11 +60,9 @@ function setupFirebase() {
   sensorsRef.on('value', function (snapshot) {
     const data = snapshot.val() || {};
 
-    // Baca aman: 0 dianggap valid
     const t = (typeof data.temperature === 'number') ? data.temperature : null;
     const h = (typeof data.moisture    === 'number') ? data.moisture    : null;
 
-    // Tampilkan ke UI
     document.getElementById('temp-value').textContent     = (t !== null) ? t.toFixed(1) : '--';
     document.getElementById('humidity-value').textContent = (h !== null) ? h : '--';
 
@@ -83,7 +75,6 @@ function setupFirebase() {
     sensorData.temperatures.push(t !== null ? t : '');
     sensorData.humidities.push(h !== null ? h : '');
 
-    // Batasi 100 data terakhir
     if (sensorData.timestamps.length > 100) {
       sensorData.timestamps.shift();
       sensorData.temperatures.shift();
@@ -91,14 +82,26 @@ function setupFirebase() {
     }
   });
 
-  // Status stream
+  // Status stream — gunakan HEARTBEAT dari ESP
   statusRef.on('value', function (snapshot) {
     const data = snapshot.val() || {};
+
+    // status RUN/STOP
     const running = !!data.running;
     document.getElementById('status-value').textContent = running ? 'RUNNING' : 'STOPPED';
     document.getElementById('source-value').textContent = data.lastCommandSource
       ? String(data.lastCommandSource).toUpperCase()
       : '--';
+
+    // === HEARTBEAT ===
+    const espOnline = !!data.espOnline; // set oleh ESP + onDisconnect
+    const lastSeen  = (typeof data.lastSeen === 'number') ? data.lastSeen : 0; // server timestamp (ms)
+    const FRESH_MS  = 15000; // 15 dtk dianggap masih hidup
+
+    const fresh = (Date.now() - lastSeen) < FRESH_MS;
+    const deviceAlive = espOnline && fresh;
+
+    setDeviceOnline(deviceAlive);
   });
 }
 
@@ -110,27 +113,61 @@ function updateProgressBar(elementId, value, maxValue) {
   el.style.width = pct + '%';
 }
 
-// ====== Commands ======
 function setButtonsDisabled(disabled) {
-  document.querySelectorAll('.control-btn').forEach(btn => {
-    btn.disabled = disabled;
-  });
+  document.querySelectorAll('.control-btn').forEach(btn => { btn.disabled = disabled; });
+  const exportBtn = document.querySelector('.export-btn');
+  if (exportBtn) exportBtn.disabled = disabled;
 }
 
+// Toggle state device online/offline → disable UI + modal
+function setDeviceOnline(isOnline) {
+  const section = document.querySelector('.section');
+  const exportBtn = document.querySelector('.export-btn');
+  if (!section) return;
+
+  if (isOnline) {
+    section.classList.remove('disabled');
+    setButtonsDisabled(false);
+    if (exportBtn) exportBtn.disabled = false;
+    showOfflineModal(false);
+
+    const el = document.getElementById('user-status');
+    if (el) {
+      const who = currentUser ? currentUser.email : 'Guest';
+      el.textContent = `🟢 ${who}`;
+    }
+  } else {
+    section.classList.add('disabled');
+    setButtonsDisabled(true);
+    if (exportBtn) exportBtn.disabled = true;
+    showOfflineModal(true);
+
+    const el = document.getElementById('user-status');
+    if (el) {
+      const who = currentUser ? currentUser.email : 'Guest';
+      el.textContent = `🔴 ${who}`;
+    }
+  }
+}
+
+// Modal helper
+function showOfflineModal(show) {
+  const modal = document.getElementById('device-offline-modal');
+  if (!modal) return;
+  modal.style.display = show ? 'block' : 'none';
+}
+
+// ====== Commands ======
 function sendCommand(action) {
   if (!currentUser) {
     showToast('Akses Ditolak', 'Silakan login dulu untuk mengontrol sistem', 'warning');
     return;
   }
-
   setButtonsDisabled(true);
 
   db.ref('controls/action').set(action)
     .then(function () {
-      console.log('Command sent:', action);
       showToast('Perintah Dikirim', action === 'start' ? 'Sistem akan dihidupkan' : 'Sistem akan dihentikan', 'info');
-
-      // Clear command setelah 1 detik (biar ESP32 sempat baca)
       setTimeout(function () {
         db.ref('controls/action').set('').finally(() => setButtonsDisabled(false));
       }, 1000);
@@ -230,15 +267,15 @@ function logout() {
     });
 }
 
-// Tutup listener saat pindah halaman
 window.addEventListener('beforeunload', function () {
   if (sensorsRef) sensorsRef.off();
   if (statusRef)  statusRef.off();
 });
 
-// Expose yang dipakai oleh onclick di HTML
-window.sendCommand = sendCommand;
-window.refreshData = refreshData;
-window.toggleAuth = toggleAuth;
-window.closeModal  = closeModal;
-window.logout      = logout;
+// Expose untuk HTML
+window.sendCommand     = sendCommand;
+window.refreshData     = refreshData;
+window.toggleAuth      = toggleAuth;
+window.closeModal      = closeModal;
+window.logout          = logout;
+window.showOfflineModal = showOfflineModal;
