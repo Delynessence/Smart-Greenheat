@@ -1,211 +1,341 @@
-/* ===== Variables ===== */
-:root{
-  --primary:#FF9A00; --primary-dark:#E68500;
-  --secondary:#F6F1E9;
-  --text-primary:#4F200D; --text-secondary:#5C483B;
-  --white:#fff;
+// ====== Global state ======
+let currentUser = null;
 
-  --gray-100:#f8f9fa; --gray-200:#e9ecef; --gray-300:#dee2e6;
-  --gray-400:#ced4da; --gray-500:#adb5bd; --gray-600:#6c757d;
-  --gray-700:#495057; --gray-800:#343a40;
+// Simpan data mentah (raw) & tampilan (view)
+const store = {
+  raw: {
+    ts: [],   // timestamp (number, ms)
+    t: [],    // temperature
+    h: []     // humidity
+  },
+  view: {
+    labels: [],
+    t: [],
+    h: []
+  }
+};
 
-  --start-1:#FFC83A; --start-2:#FF8A00;
-  --stop-1:#6B3F2E;  --stop-2:#4F2A1E;
-  --ref-1:#25A6F1;  --ref-2:#167BD9;
+// Firebase refs
+let sensorsRef = null;
+let statusRef  = null;
 
-  --spacer:1rem; --spacer-sm:.5rem; --spacer-lg:1.5rem; --spacer-xl:3rem;
-  --radius:.5rem; --radius-lg:1.25rem;
+// Firebase compat objects (dibuat di firebase-config.js)
+const db   = window.database;
+const auth = window.auth;
 
-  --shadow-sm:0 2px 6px rgba(20,20,20,.08);
-  --shadow:0 8px 20px rgba(20,20,20,.12);
-  --shadow-lg:0 18px 40px rgba(20,20,20,.18);
+// Chart
+let chart = null;
+let rangeMinutes = 15;   // default 15 menit. "all" = seluruh data
+const MAX_POINTS = 1000; // hard cap agar tetap ringan
+
+// ====== Init ======
+document.addEventListener('DOMContentLoaded', function () {
+  // Spinner auto-hide
+  setTimeout(() => {
+    const ov = document.getElementById('loading-overlay');
+    if (ov) ov.classList.add('hidden');
+  }, 1200);
+
+  // Auth
+  auth.onAuthStateChanged(function (user) {
+    if (user) {
+      currentUser = user;
+      const el = document.getElementById('user-status');
+      if (el) el.textContent = '👤 ' + user.email;
+
+      // tampilkan tombol logout
+      const b = document.getElementById('auth-btn');
+      if (b) b.style.display = 'inline-flex';
+
+      setupFirebase();
+      bindRangeButtons();
+    } else {
+      window.location.href = 'login.html';
+    }
+  });
+});
+
+// ====== Firebase listeners ======
+function setupFirebase () {
+  if (!db) return;
+
+  if (!sensorsRef) sensorsRef = db.ref('sensors');
+  if (!statusRef)  statusRef  = db.ref('status');
+
+  initChart();
+
+  // Sensor stream
+  sensorsRef.on('value', snap => {
+    const data = snap.val() || {};
+    const t = (typeof data.temperature === 'number') ? data.temperature : null;
+    const h = (typeof data.moisture    === 'number') ? data.moisture    : null;
+
+    // tampilkan kartu
+    setText('temp-value', (t !== null) ? t.toFixed(1) : '--');
+    setText('humidity-value', (h !== null) ? h : '--');
+    if (t !== null) setProgress('temp-progress', t, 100);
+    if (h !== null) setProgress('humidity-progress', h, 100);
+
+    // simpan raw
+    const ts = Date.now();
+    store.raw.ts.push(ts);
+    store.raw.t.push(t !== null ? t : null);
+    store.raw.h.push(h !== null ? h : null);
+
+    // batasi panjang raw (biar ramah)
+    trimRaw();
+
+    // refresh grafik sesuai filter aktif
+    rebuildView();
+    if (chart) chart.update('none');
+  });
+
+  // Status stream
+  statusRef.on('value', snap => {
+    const data = snap.val() || {};
+    const running = !!data.running;
+    setText('status-value', running ? 'RUNNING' : 'STOPPED');
+    setText('source-value',
+      data.lastCommandSource ? String(data.lastCommandSource).toUpperCase() : '--'
+    );
+  });
 }
 
-/* ===== Base ===== */
-*{margin:0;padding:0;box-sizing:border-box}
-body{
-  font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial,sans-serif;
-  background:var(--secondary); color:var(--text-primary); line-height:1.6;
-  padding-bottom:70px;
-}
-.container{max-width:1200px;margin:0 auto;padding:var(--spacer)}
+// ====== Chart.js ======
+function initChart(){
+  if (chart) return;
+  const ctx = document.getElementById('sensorChart');
+  if (!ctx) return;
 
-/* ===== Loading ===== */
-.loading-overlay{position:fixed;inset:0;background:rgba(255,255,255,.9);
-  display:flex;flex-direction:column;justify-content:center;align-items:center;
-  z-index:9999;transition:opacity .3s}
-.loading-overlay.hidden{opacity:0;pointer-events:none}
-.spinner{width:50px;height:50px;border:5px solid var(--gray-200);
-  border-top:5px solid var(--primary);border-radius:50%;animation:spin 1s linear infinite;margin-bottom:var(--spacer)}
-@keyframes spin{to{transform:rotate(360deg)}}
+  const colorTemp = getCss('--start-2') || '#FF8A00';
+  const colorHum  = getCss('--ref-2')   || '#167BD9';
 
-/* ===== Header ===== */
-.main-header{
-  display:flex;justify-content:space-between;align-items:center;
-  background:linear-gradient(135deg,var(--primary),var(--primary-dark));
-  color:#fff;padding:var(--spacer);border-radius:var(--radius-lg);
-  margin-bottom:var(--spacer-lg);box-shadow:var(--shadow);position:relative;overflow:hidden
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: store.view.labels,
+      datasets: [
+        {
+          label: 'Suhu (°C)',
+          data: store.view.t,
+          yAxisID: 'yTemp',
+          borderColor: colorTemp,
+          backgroundColor: hexToRGBA(colorTemp, 0.15),
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.35
+        },
+        {
+          label: 'Kelembapan (%)',
+          data: store.view.h,
+          yAxisID: 'yHum',
+          borderColor: colorHum,
+          backgroundColor: hexToRGBA(colorHum, 0.15),
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.35
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: { callbacks: {
+          title: (items) => items[0]?.label || '',
+          label: (ctx) => {
+            const v = ctx.parsed.y;
+            if (ctx.dataset.yAxisID === 'yTemp') return `Suhu: ${Number(v).toFixed(1)} °C`;
+            return `Kelembapan: ${v} %`;
+          }
+        }}
+      },
+      scales: {
+        x: {
+          ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
+          grid: { display: false }
+        },
+        yTemp: {
+          position: 'left',
+          title: { display: true, text: '°C' },
+          grid: { drawOnChartArea: true }
+        },
+        yHum: {
+          position: 'right',
+          title: { display: true, text: '%' },
+          grid: { drawOnChartArea: false },
+          suggestedMin: 0, suggestedMax: 100
+        }
+      },
+      animation: false
+    }
+  });
 }
-.logo-container{display:flex;align-items:center;gap:var(--spacer)}
-.logo{height:50px;width:auto;border-radius:.375rem;background:#fff;padding:5px;box-shadow:var(--shadow-sm)}
-.main-header h1{font-size:1.75rem;font-weight:700;margin:0}
-.user-info{display:flex;align-items:center;gap:var(--spacer)}
-#user-status{background:rgba(255,255,255,.2);padding:.5rem 1rem;border-radius:20px;font-size:.9rem;backdrop-filter:blur(4px)}
 
-/* Tombol Logout (header) — rounded & gradien */
-.auth-button{
-  display:inline-flex; align-items:center; gap:.5rem;
-  padding:.5rem 1rem;
-  border:0; border-radius:9999px;
-  color:#fff; cursor:pointer; font-weight:600;
-  background-image:linear-gradient(135deg,var(--stop-1),var(--stop-2));
-  box-shadow:0 6px 14px rgba(44,23,14,.22), inset 0 0 0 1px rgba(255,255,255,.08);
-  transition:transform .15s ease, box-shadow .15s ease, filter .15s ease;
-}
-.auth-button i{font-size:1rem}
-.auth-button:hover{transform:translateY(-2px); box-shadow:0 10px 22px rgba(44,23,14,.28)}
-.auth-button:active{transform:translateY(0); filter:brightness(.97)}
-.auth-button:focus-visible{
-  outline:0;
-  box-shadow:0 0 0 3px rgba(255,255,255,.9), 0 0 0 6px rgba(79,42,30,.35);
-}
-/* opsional kalau ingin disembunyikan via JS: tambahkan class .hidden */
-.auth-button.hidden{display:none !important}
+// Hitung ulang view berdasar range aktif
+function rebuildView(){
+  const N = store.raw.ts.length;
+  if (!N) return;
 
-/* ===== Cards ===== */
-.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:var(--spacer-lg);margin-bottom:var(--spacer-xl)}
-.stat-card{background:#fff;border-radius:var(--radius-lg);padding:var(--spacer-lg);box-shadow:var(--shadow);border:1px solid var(--gray-200);position:relative;overflow:hidden}
-.stat-card::before{content:'';position:absolute;inset:0 0 auto 0;height:5px;background:linear-gradient(90deg,var(--primary),var(--primary-dark))}
-.card-header{display:flex;align-items:center;gap:var(--spacer);margin-bottom:var(--spacer)}
-.card-header h3{margin:0;font-size:1.25rem}
-.icon-temperature{color:#ff6b6b;font-size:1.5rem}
-.icon-humidity{color:#4895ef;font-size:1.5rem}
-.icon-status{color:#4cc9f0;font-size:1.5rem}
-.card-content{text-align:center;margin-bottom:var(--spacer)}
-.value{font-size:2.5rem;font-weight:700;margin:.5rem 0}
-.unit{color:var(--text-secondary);font-size:1rem;margin:0}
-.status-source{display:flex;justify-content:center;align-items:center;gap:.5rem;font-size:.9rem;color:var(--text-secondary)}
-.source-label{font-weight:600}.source-text{font-weight:500;text-transform:uppercase}
-.progress-container{margin-top:var(--spacer)}
-.progress-bar{height:10px;background:var(--gray-200);border-radius:5px;overflow:hidden;margin-bottom:.5rem;position:relative}
-.progress-bar::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,var(--primary),var(--primary-dark));border-radius:5px;opacity:.3;z-index:1}
-.progress-fill{height:100%;background:linear-gradient(90deg,var(--primary),var(--primary-dark));border-radius:5px;width:0%;transition:width .5s ease;z-index:2}
-.progress-labels{display:flex;justify-content:space-between;font-size:.8rem;color:var(--text-secondary)}
+  let idxStart = 0;
+  if (rangeMinutes !== 'all') {
+    const cutoff = Date.now() - rangeMinutes * 60 * 1000;
+    // cari indeks pertama yang >= cutoff
+    for (let i = N - 1; i >= 0; i--) {
+      if (store.raw.ts[i] < cutoff) { idxStart = i + 1; break; }
+    }
+  }
 
-/* ===== Section & Disabled ===== */
-.section{background:#fff;border-radius:var(--radius-lg);padding:var(--spacer-lg);margin-bottom:var(--spacer-xl);box-shadow:var(--shadow);border:1px solid var(--gray-200);position:relative;overflow:hidden}
-.section::before{content:'';position:absolute;inset:0 0 auto 0;height:5px;background:linear-gradient(90deg,var(--primary),var(--primary-dark))}
-.section.disabled{ filter: grayscale(.15) opacity(.6); pointer-events: none; transition: filter .2s ease;}
-.section-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--spacer-lg);flex-wrap:wrap;gap:var(--spacer)}
-.section-header h2{margin:0;font-size:1.5rem;display:flex;align-items:center;gap:.75rem}
-.export-btn{background:var(--primary);color:#fff;border:0;padding:.75rem 1.5rem;border-radius:var(--radius-lg);cursor:pointer;font-size:.9rem;font-weight:500;transition:.2s;display:flex;align-items:center;gap:.5rem}
-.export-btn:hover{background:var(--primary-dark);transform:translateY(-2px);box-shadow:0 4px 8px rgba(0,0,0,.1)}
+  const tsSlice = store.raw.ts.slice(idxStart);
+  const tSlice  = store.raw.t.slice(idxStart);
+  const hSlice  = store.raw.h.slice(idxStart);
 
-/* ===== Control Buttons ===== */
-.control-buttons{display:flex;gap:var(--spacer);flex-wrap:wrap}
-.control-btn{
-  --btn-h:56px;
-  flex:1;min-width:170px;height:var(--btn-h);padding:0 1.15rem;border:0;border-radius:28px;
-  cursor:pointer;font-size:1rem;font-weight:800;letter-spacing:.02em;
-  display:inline-flex;align-items:center;justify-content:center;gap:.65rem;
-  position:relative;overflow:hidden;
-  box-shadow:0 10px 24px rgba(0,0,0,.12);
-  transition:transform .18s ease, box-shadow .18s ease, filter .18s ease;
-}
-.control-btn::before{content:"";position:absolute;inset:0 0 55% 0;background:linear-gradient(to bottom,rgba(255,255,255,.18),rgba(255,255,255,0))}
-.control-btn::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px rgba(255,255,255,.15), inset 0 -1px 0 rgba(0,0,0,.05)}
-.control-btn:hover{transform:translateY(-3px);box-shadow:0 16px 34px rgba(0,0,0,.16);filter:brightness(1.03)}
-.control-btn:active{transform:translateY(-1px);box-shadow:0 10px 22px rgba(0,0,0,.14);filter:brightness(.98)}
-.control-btn:focus-visible{outline:0;box-shadow:0 0 0 4px rgba(255,255,255,.9),0 0 0 8px rgba(255,154,0,.28)}
-.control-btn:disabled{opacity:.6;cursor:not-allowed;filter:saturate(.75)}
-.control-btn i{font-size:1.05rem}
-.btn-success{background-image:linear-gradient(135deg,var(--start-1),var(--start-2));color:#1a1a1a}
-.btn-danger{background-image:linear-gradient(135deg,var(--stop-1),var(--stop-2));color:#fff}
-.btn-info{background-image:linear-gradient(135deg,var(--ref-1),var(--ref-2));color:#fff}
+  // batasi jumlah titik di view agar ringan
+  const step = Math.max(1, Math.ceil((tsSlice.length) / MAX_POINTS));
 
-/* ===== Modal ===== */
-.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;backdrop-filter:blur(5px)}
-.modal-content{background:#fff;margin:5% auto;padding:0;border-radius:var(--radius-lg);width:90%;max-width:500px;box-shadow:var(--shadow-lg);animation:modalSlideIn .3s ease-out}
-@keyframes modalSlideIn{from{opacity:0;transform:translateY(-50px)}to{opacity:1;transform:translateY(0)}}
-.modal-header{padding:var(--spacer-lg);border-bottom:1px solid var(--gray-200);display:flex;justify-content:space-between;align-items:center}
-.modal-header h2{margin:0;font-size:1.5rem;display:flex;align-items:center;gap:.75rem}
-.close{font-size:2rem;font-weight:700;cursor:pointer;color:var(--text-secondary);transition:.2s}
-.close:hover{color:var(--text-primary)}
-.modal-body{padding:var(--spacer-lg)}
-.modal-footer{padding:var(--spacer-lg);border-top:1px solid var(--gray-200);display:flex;justify-content:flex-end;gap:var(--spacer)}
+  store.view.labels.length = 0;
+  store.view.t.length = 0;
+  store.view.h.length = 0;
 
-/* ===== Buttons (modal) – upgrade look & feel ===== */
-.btn {
-  display: inline-flex; align-items: center; gap: .5rem;
-  padding: .65rem 1.2rem; border: 0; border-radius: 14px;
-  font-weight: 700; letter-spacing: .02em; cursor: pointer;
-  box-shadow: var(--shadow);
-  transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
-  user-select: none;
+  for (let i = 0; i < tsSlice.length; i += step) {
+    store.view.labels.push(formatLabel(tsSlice[i]));
+    store.view.t.push(tSlice[i]);
+    store.view.h.push(hSlice[i]);
+  }
 }
-.btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
-.btn:active { transform: translateY(0); filter: brightness(.97); }
-.btn:focus-visible{
-  outline:0;
-  box-shadow:0 0 0 3px rgba(255,255,255,.95), 0 0 0 6px rgba(79, 42, 30, .35);
-}
-.btn-secondary{ background: linear-gradient(135deg, #7a8691, #5a6268); color:#fff; }
-.btn-danger{
-  background-image: linear-gradient(135deg, var(--stop-1), var(--stop-2));
-  color:#fff;
-  box-shadow: 0 10px 24px rgba(44,23,14,.28),
-              inset 0 0 0 1px rgba(255,255,255,.06);
-}
-.btn .btn-icon{ width:1rem; height:1rem; font-size:1rem; line-height:1; }
 
-/* ===== Toast ===== */
-.toast{
-  position:fixed; top:20px; right:20px;
-  background:#fff; border-radius:var(--radius-lg);
-  padding:1rem 1.5rem; box-shadow:var(--shadow-lg);
-  border-left:4px solid var(--primary); z-index:5000;
-  transform:translateX(120%); transition:transform .3s cubic-bezier(.4,0,.2,1);
-  max-width:360px; display:flex; align-items:flex-start; gap:1rem;
-}
-.toast.show{transform:translateX(0)}
-.toast-icon{font-size:1.5rem;margin-top:.25rem}
-.toast-success .toast-icon{color:#06d6a0}
-.toast-warning .toast-icon{color:#ffd166}
-.toast-error .toast-icon{color:#ef476f}
-.toast-info .toast-icon{color:#118ab2}
-.toast-content{flex:1}
-.toast-title{font-weight:600;margin-bottom:.25rem}
-.toast-message{font-size:.9rem;color:var(--text-secondary);margin:0}
-.toast-close{background:none;border:none;font-size:1.5rem;cursor:pointer;color:var(--text-secondary);padding:0;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:4px;transition:.2s}
-.toast-close:hover{background:var(--gray-100);color:var(--text-primary)}
+// ====== Range buttons ======
+function bindRangeButtons(){
+  document.querySelectorAll('.range-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
 
-/* ===== Mobile nav ===== */
-.mobile-nav{position:fixed;left:0;bottom:0;width:100%;background:#fff;display:none;justify-content:space-around;padding:.75rem 0;box-shadow:0 -2px 10px rgba(0,0,0,.1);border-top:1px solid var(--gray-200);z-index:100}
-.nav-item{display:flex;flex-direction:column;align-items:center;gap:.25rem;padding:.5rem;text-decoration:none;color:var(--text-secondary);font-size:.75rem;transition:.2s}
-.nav-item i{font-size:1.25rem}
-.nav-item:hover,.nav-item.active{color:var(--primary)}
+      const v = btn.getAttribute('data-min');
+      rangeMinutes = (v === 'all') ? 'all' : Number(v);
 
-/* ===== Responsive ===== */
-@media (max-width:992px){
-  .stats-grid{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
-  .control-buttons{flex-direction:column}
-  .control-btn{width:100%;min-width:0}
+      rebuildView();
+      if (chart) chart.update('none');
+    });
+  });
 }
-@media (max-width:768px){
-  .container{padding:var(--spacer-sm)}
-  .main-header{padding:var(--spacer-sm);flex-direction:column;gap:var(--spacer)}
-  .logo-container{width:100%;justify-content:center}
-  .header-right{width:100%;justify-content:center}
-  .section-header{flex-direction:column;align-items:flex-start}
-  .export-btn{align-self:flex-end}
-  .mobile-nav{display:flex}
-  body{padding-bottom:70px}
+
+// ====== UI helpers ======
+function setText(id, text){
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
 }
-@media (max-width:576px){
-  .stat-card{padding:var(--spacer)}
-  .card-header h3{font-size:1.1rem}
-  .value{font-size:2rem}
-  .section{padding:var(--spacer)}
-  .section-header h2{font-size:1.25rem}
-  .modal-content{width:95%;margin:10% auto}
+function setProgress(id, value, maxValue){
+  const el = document.getElementById(id);
+  if (!el || typeof value !== 'number' || typeof maxValue !== 'number' || maxValue <= 0) return;
+  const pct = Math.max(0, Math.min(100, (value / maxValue) * 100));
+  el.style.width = pct + '%';
 }
+function getCss(name){
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+function hexToRGBA(hex, a){
+  const m = hex.replace('#','');
+  const v = parseInt(m.length === 3 ? m.split('').map(c=>c+c).join('') : m, 16);
+  const r = (v>>16)&255, g=(v>>8)&255, b=v&255;
+  return `rgba(${r},${g},${b},${a})`;
+}
+function formatLabel(ms){
+  const d = new Date(ms);
+  // jika di hari yang sama, tampilkan jam:menit:detik; jika beda hari, sertakan tanggal
+  const today = new Date();
+  const sameDay = d.toDateString() === today.toDateString();
+  return sameDay ? d.toLocaleTimeString() : d.toLocaleString();
+}
+function trimRaw(){
+  // jaga-jaga biar tak tumbuh tanpa batas (1 minggu @ 2s ≈ 302k; terlalu besar)
+  const HARD_MAX = 20000;
+  const len = store.raw.ts.length;
+  if (len > HARD_MAX) {
+    const drop = len - HARD_MAX;
+    store.raw.ts.splice(0, drop);
+    store.raw.t.splice(0, drop);
+    store.raw.h.splice(0, drop);
+  }
+}
+
+// ====== Commands & misc ======
+function setButtonsDisabled(disabled){
+  document.querySelectorAll('.control-btn').forEach(btn => btn.disabled = disabled);
+}
+function sendCommand(action){
+  if (!currentUser) { showToast('Akses Ditolak', 'Silakan login dulu', 'warning'); return; }
+  setButtonsDisabled(true);
+  db.ref('controls/action').set(action)
+    .then(() => {
+      showToast('Perintah Dikirim', action === 'start' ? 'Sistem akan dihidupkan' : 'Sistem akan dihentikan', 'info');
+      setTimeout(() => db.ref('controls/action').set('').finally(()=>setButtonsDisabled(false)), 1000);
+    })
+    .catch(err => {
+      setButtonsDisabled(false);
+      showToast('Error', 'Gagal mengirim perintah: ' + err.message, 'error');
+    });
+}
+function refreshData(){
+  showToast('Refresh', 'Memperbarui data...', 'info', 1200);
+}
+function exportData(){
+  if (!currentUser) { showToast('Akses Ditolak', 'Silakan login dulu', 'warning'); return; }
+  let csv = "data:text/csv;charset=utf-8,";
+  csv += "Timestamp,Suhu (°C),Kelembapan (%)\n";
+  for (let i = 0; i < store.raw.ts.length; i++) {
+    const ts = new Date(store.raw.ts[i]).toLocaleString();
+    const t  = store.raw.t[i] ?? '';
+    const h  = store.raw.h[i] ?? '';
+    csv += `${ts},${t},${h}\n`;
+  }
+  const encoded = encodeURI(csv);
+  const a = document.createElement("a");
+  a.href = encoded;
+  a.download = "sensor_data_" + new Date().toISOString().slice(0,10) + ".csv";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  showToast('Export Berhasil', 'Data sensor telah diunduh', 'success');
+}
+
+// ====== Toast ======
+function showToast(title, message, type='info', duration=5000){
+  const prev = document.querySelector('.toast'); if (prev) prev.remove();
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type} show`;
+  let icon = 'ℹ️'; if (type==='success') icon='✅'; else if (type==='warning') icon='⚠️'; else if (type==='error') icon='❌';
+  toast.innerHTML = `
+    <div class="toast-icon">${icon}</div>
+    <div class="toast-content">
+      <div class="toast-title">${title}</div>
+      <p class="toast-message">${message}</p>
+    </div>
+    <button class="toast-close">&times;</button>
+  `;
+  document.body.appendChild(toast);
+  toast.querySelector('.toast-close').addEventListener('click', () => toast.remove());
+  if (duration > 0) setTimeout(()=>toast.remove(), duration);
+}
+
+// ====== Modal & Auth ======
+function toggleAuth(){ document.getElementById('logout-modal').style.display = 'block'; }
+function closeModal(){ document.getElementById('logout-modal').style.display = 'none'; }
+function logout(){
+  auth.signOut()
+    .then(()=>{ showToast('Logout Berhasil', 'Anda telah keluar', 'success'); setTimeout(()=>location.href='login.html', 1200); })
+    .catch(err => showToast('Error Logout', err.message, 'error'));
+}
+function showOfflineModal(show){
+  const m = document.getElementById('device-offline-modal');
+  if (!m) return;
+  m.style.display = show ? 'block' : 'none';
+}
+
+// Expose ke HTML
+window.sendCommand   = sendCommand;
+window.refreshData   = refreshData;
+window.toggleAuth    = toggleAuth;
+window.closeModal    = closeModal;
+window.logout        = logout;
+window.showOfflineModal = showOfflineModal;
