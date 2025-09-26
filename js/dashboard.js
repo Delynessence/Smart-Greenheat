@@ -4,12 +4,13 @@
    - Filter 15m / 1h / 6h / 24h / All
    - Export CSV dari /logs sesuai rentang filter aktif
    - Kontrol: start / stop / refresh(reboot) / wifi_reconfig (opsional)
+   - Auth: Firebase v8/compat. Redirect hanya di onAuthStateChanged.
 */
 
 (() => {
   // ===== Firebase (dari firebase-config.js) =====
-  const db   = window.database;
-  const auth = window.auth;
+  const db   = window.database; // RTDB compat
+  const auth = window.auth;     // Auth compat
 
   // ===== Global state =====
   let currentUser = null;
@@ -178,7 +179,6 @@
     if (!chart) initChart();
     if (!chart) return;
 
-    // Downsample sederhana jika > MAX_POINTS (Chart decimation juga aktif)
     const step = Math.max(1, Math.ceil(logs.length / MAX_POINTS));
     const labels = [];
     const t = [];
@@ -201,20 +201,17 @@
     if (logsQueryRef) { logsQueryRef.off(); logsQueryRef = null; }
   }
 
-  // Ambil data logs sesuai filter (persisten di RTDB)
   function attachLogsListener(){
     detachLogsListener();
     logs.length = 0;
 
     const logsRef = db.ref('logs').orderByChild('ts');
-
     let qRef;
+
     if (rangeMinutes === 'all') {
-      // Semua histori (hati2 kalau data sangat banyak; bisa batasi last 30k)
       qRef = logsRef.limitToLast(30000);
     } else {
       const startTs = Date.now() - (Number(rangeMinutes) * 60 * 1000);
-      // ambil dari waktu cutoff sampai sekarang, batasi jumlah maksimum
       qRef = logsRef.startAt(startTs).limitToLast(10000);
     }
 
@@ -223,12 +220,10 @@
       const arr = [];
       snap.forEach(child => {
         const v = child.val() || {};
-        // pastikan ts, t, h valid
         if (typeof v.ts === 'number' && typeof v.t === 'number' && typeof v.h === 'number') {
           arr.push({ ts: v.ts, t: v.t, h: v.h });
         }
       });
-      // sort by ts untuk jaga urutan
       arr.sort((a,b)=>a.ts-b.ts);
 
       logs.length = 0;
@@ -287,14 +282,12 @@
     sendCommand('wifi_reconfig');
   }
 
-  // ===== Auth & listeners =====
+  // ===== Realtime listeners =====
   function setupRealtimeListeners(){
-    // server time offset
     db.ref('.info/serverTimeOffset').on('value', snap => {
       SERVER_OFFSET_MS = Number(snap.val() || 0);
     });
 
-    // live sensors (cards)
     sensorsRef = db.ref('sensors');
     sensorsRef.on('value', snap => {
       lastAnyEventAt = Date.now();
@@ -307,7 +300,6 @@
       if (h!==null) setProgress('humidity-progress', h, 100);
     });
 
-    // status
     statusRef = db.ref('status');
     statusRef.on('value', snap => {
       lastAnyEventAt = Date.now();
@@ -316,7 +308,6 @@
       setText('source-value', d.lastCommandSource ? String(d.lastCommandSource).toUpperCase() : '--');
     });
 
-    // heartbeat lastSeen (server timestamp)
     lastSeenRef = db.ref('status/lastSeen');
     lastSeenRef.on('value', snap => {
       const v = snap.val();
@@ -325,7 +316,6 @@
       updateOnlineState(fresh);
     });
 
-    // mulai watchdog
     startHeartbeatWatch();
   }
 
@@ -336,24 +326,30 @@
         btn.classList.add('active');
         const v = btn.getAttribute('data-min');
         rangeMinutes = (v==='all') ? 'all' : Number(v);
-        attachLogsListener(); // fetch ulang dari /logs sesuai range
+        attachLogsListener();
       });
     });
   }
 
-  // ===== Modal / Auth buttons =====
+  // ===== Modal / Auth buttons (compat) =====
   function toggleAuth(){
-    const m = document.getElementById('logout-modal');
-    if (m) m.style.display = 'block';
+    document.getElementById('logout-modal')?.classList.remove('hidden');
   }
   function closeModal(){
-    const m = document.getElementById('logout-modal');
-    if (m) m.style.display = 'none';
+    document.getElementById('logout-modal')?.classList.add('hidden');
   }
-  function logout(){
-    auth.signOut()
-      .then(()=>{ showToast('Logout Berhasil','Anda telah keluar','success'); setTimeout(()=> location.href='login.html', 900); })
-      .catch(err=> showToast('Error Logout', err.message, 'error'));
+  async function logout(){
+    try {
+      document.getElementById('logout-btn')?.setAttribute('disabled','true');
+      await auth.signOut(); // ✅ compat/v8
+      showToast('Logout Berhasil','Anda telah keluar','success');
+      // Redirect ditangani oleh onAuthStateChanged
+    } catch (err) {
+      showToast('Error Logout', err.message, 'error');
+    } finally {
+      closeModal();
+      document.getElementById('logout-btn')?.removeAttribute('disabled');
+    }
   }
 
   // ===== Boot =====
@@ -362,30 +358,25 @@
     setDeviceOnline(false);
     showOfflineModal(true);
 
-    // Loading overlay auto-hide
     setTimeout(()=> document.getElementById('loading-overlay')?.classList.add('hidden'), 900);
-
-    // Init Chart
     initChart();
-
-    // Range buttons
     bindRangeButtons();
 
-    // Auth
+    // Bind logout button (id harus ada di HTML)
+    document.getElementById('logout-btn')?.addEventListener('click', logout);
+
+    // Auth listener — single source of truth untuk redirect
     auth.onAuthStateChanged(user=>{
-      if (!user) { window.location.href = 'login.html'; return; }
+      if (!user) { window.location.replace('login.html'); return; }
+
       currentUser = user;
       setText('user-status', '👤 ' + (user.email || 'User'));
       document.getElementById('auth-btn')?.classList.remove('hidden');
 
-      // Realtime listeners (sensors/status/lastSeen)
       setupRealtimeListeners();
-
-      // Ambil logs sesuai range default
       attachLogsListener();
     });
 
-    // Hemat resource saat tab bg
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) stopHeartbeatWatch(); else startHeartbeatWatch();
     });
@@ -402,9 +393,9 @@
   window.sendCommand = sendCommand;
   window.refreshData = refreshData;
   window.exportData  = exportData;
-  window.wifiReconfig = wifiReconfig;   // opsional, tambahkan tombol jika perlu
+  window.wifiReconfig = wifiReconfig;
   window.toggleAuth  = toggleAuth;
   window.closeModal  = closeModal;
-  window.logout      = logout;
+  window.logout      = logout;              // (optional if you use the bound button)
   window.showOfflineModal = showOfflineModal;
 })();
