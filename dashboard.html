@@ -8,6 +8,11 @@
   <link rel="stylesheet" href="css/dashboard.css" />
   <link rel="stylesheet"
         href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+
+  <!-- Utility: hide/show used by the JS (Plan A) -->
+  <style>
+    .hidden { display: none !important; }
+  </style>
 </head>
 <body>
   <!-- Loading Spinner -->
@@ -28,7 +33,8 @@
       <div class="header-right">
         <div class="user-info">
           <span id="user-status">👤 Guest</span>
-          <button id="auth-btn" class="auth-button" type="button"
+          <!-- Start hidden; JS will show after login -->
+          <button id="auth-btn" class="auth-button hidden" type="button"
                   onclick="toggleAuth()" aria-label="Logout" title="Logout">
             <i class="fas fa-right-from-bracket" aria-hidden="true"></i>
             Logout
@@ -119,7 +125,8 @@
           <button class="export-btn" type="button" onclick="exportData()">
             <i class="fas fa-download" aria-hidden="true"></i> Export
           </button>
-          <button class="wifi-btn" type="button" onclick="requestWifiReconfig()">
+          <!-- fixed: call wifiReconfig() (matches JS) -->
+          <button class="wifi-btn" type="button" onclick="wifiReconfig()">
             <i class="fas fa-wifi" aria-hidden="true"></i> Ganti Wi-Fi
           </button>
         </div>
@@ -138,8 +145,8 @@
       </div>
     </div>
 
-    <!-- Modal Logout -->
-    <div id="logout-modal" class="modal" aria-hidden="true">
+    <!-- Modal Logout (managed with .hidden) -->
+    <div id="logout-modal" class="modal hidden" aria-hidden="true">
       <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="logout-title">
         <div class="modal-header">
           <h2 id="logout-title">
@@ -154,15 +161,16 @@
           <button class="btn btn-secondary" type="button" onclick="closeModal()">
             <i class="fas fa-times btn-icon" aria-hidden="true"></i> Batal
           </button>
-          <button class="btn btn-danger" type="button" onclick="logout()">
+          <!-- fixed: give the button an id for JS to disable -->
+          <button id="logout-btn" class="btn btn-danger" type="button" onclick="logout()">
             <i class="fas fa-power-off btn-icon" aria-hidden="true"></i> Logout
           </button>
         </div>
       </div>
     </div>
 
-    <!-- Modal: Mesin Offline -->
-    <div id="device-offline-modal" class="modal" aria-hidden="true">
+    <!-- Modal: Mesin Offline (JS uses style.display; DO NOT add .hidden here) -->
+    <div id="device-offline-modal" class="modal" aria-hidden="true" style="display:none">
       <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="offline-title">
         <div class="modal-header">
           <h2 id="offline-title"><i class="fas fa-wifi-slash" aria-hidden="true"></i> Mesin Offline</h2>
@@ -216,7 +224,7 @@
   <!-- Inisialisasi Firebase (punyamu) -->
   <script src="firebase-config.js"></script>
 
-  <!-- Logic dashboard -->
+  <!-- Logic dashboard (Plan A / compat) -->
   <script src="js/dashboard.js"></script>
 </body>
-</html>
+          </html>
